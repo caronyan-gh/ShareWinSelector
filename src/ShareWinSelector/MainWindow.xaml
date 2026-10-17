@@ -247,10 +247,10 @@
                         <StackPanel Margin="0,0,14,0">
                             <TextBlock Text="{Binding [Settings_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
 
-                            <TextBlock Text="{Binding [Monitor_Label], Source={x:Static local:Loc.Instance}}" Margin="0,0,0,4"/>
+                            <TextBlock TextWrapping="Wrap" Text="{Binding [Monitor_Label], Source={x:Static local:Loc.Instance}}" Margin="0,0,0,4"/>
                             <ComboBox x:Name="MonitorCombo" HorizontalAlignment="Stretch" SelectionChanged="MonitorCombo_SelectionChanged"/>
 
-                            <TextBlock Text="{Binding [Background_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
+                            <TextBlock TextWrapping="Wrap" Text="{Binding [Background_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <ComboBox x:Name="BackgroundCombo" HorizontalAlignment="Stretch" SelectionChanged="BackgroundCombo_SelectionChanged"/>
                             <!-- 単色の色: [色を選ぶ] ■ #RRGGBB。「単色」以外では押せない。押すとむにむにのポップアップ -->
                             <StackPanel x:Name="SolidColorRow" Orientation="Horizontal" Margin="0,8,0,0">
@@ -269,7 +269,7 @@
                                 </Border>
                             </Popup>
 
-                            <TextBlock Text="{Binding [Placement_Header], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
+                            <TextBlock TextWrapping="Wrap" Text="{Binding [Placement_Header], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <RadioButton x:Name="PlacementBack" Content="{Binding [Placement_Back], Source={x:Static local:Loc.Instance}}" IsChecked="True" Checked="Placement_Checked"/>
                             <RadioButton x:Name="PlacementNormal" Content="{Binding [Placement_Normal], Source={x:Static local:Loc.Instance}}" Checked="Placement_Checked"/>
                             <RadioButton x:Name="PlacementOffScreen" Checked="Placement_Checked">
@@ -291,7 +291,7 @@
                                 <TextBlock Text="{Binding [Option_Popups], Source={x:Static local:Loc.Instance}}" TextWrapping="Wrap"/>
                             </CheckBox>
 
-                            <TextBlock Text="{Binding [Language_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
+                            <TextBlock TextWrapping="Wrap" Text="{Binding [Language_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <ComboBox x:Name="LanguageCombo" HorizontalAlignment="Stretch" SelectionChanged="LanguageCombo_SelectionChanged"/>
 
                             <!-- 後片付け: 設定とログを消して、何も残さず終了する -->
