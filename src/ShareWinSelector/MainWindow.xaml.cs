@@ -144,6 +144,7 @@ public partial class MainWindow : Window
         ThumbList.ItemsSource = sorted;
         InitializeLayout();
         PopulateLanguages();
+        InitializeColorPicker();
         PopulateBackgrounds();
         Loc.Instance.LanguageChanged += OnLanguageChanged;
         Loaded += OnLoaded;
@@ -584,6 +585,22 @@ public partial class MainWindow : Window
             OutputPlacement.Back;
         if (_output is not null) _output.Placement = placement;
         SaveOptions();
+    }
+
+    /// <summary>
+    /// 設定とログ（%LOCALAPPDATA%\ShareWinSelector）を消して終了する。アプリを消す前の後片付け用。
+    /// 終了処理中の保存やログでフォルダが作り直されないよう、先に書き込みを止めてから閉じ、最後にフォルダごと消す。
+    /// </summary>
+    private void DeleteData_Click(object sender, RoutedEventArgs e)
+    {
+        var answer = MessageBox.Show(this, Loc.F("Settings_DeleteDataConfirm", AppSettings.Folder), Loc.T("Settings_DeleteDataTitle"),
+            MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel);
+        if (answer != MessageBoxResult.OK) return;
+        Log.Info("設定を削除して終了");
+        AppSettings.SavingDisabled = true;
+        Log.Disabled = true;
+        App.DeleteDataOnExit = true;
+        Close();
     }
 
     private void Shutdown()

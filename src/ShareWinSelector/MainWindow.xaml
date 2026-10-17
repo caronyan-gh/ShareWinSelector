@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:ShareWinSelector"
+        xmlns:controls="clr-namespace:ShareWinSelector.Controls"
         Title="ShareWinSelector" Width="1000" Height="660" MinWidth="300" MinHeight="260"
         Icon="Assets/app.ico"
         Background="{StaticResource BrandWindowBackgroundBrush}">
@@ -242,7 +243,8 @@
 
                 <Border Style="{StaticResource CardStyle}">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <StackPanel>
+                        <!-- 右端は細いスクロールバーが重なるので空けておく（色相バーをつかんだつもりでスクロールしないように） -->
+                        <StackPanel Margin="0,0,14,0">
                             <TextBlock Text="{Binding [Settings_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
 
                             <TextBlock Text="{Binding [Monitor_Label], Source={x:Static local:Loc.Instance}}" Margin="0,0,0,4"/>
@@ -250,6 +252,8 @@
 
                             <TextBlock Text="{Binding [Background_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <ComboBox x:Name="BackgroundCombo" HorizontalAlignment="Stretch" SelectionChanged="BackgroundCombo_SelectionChanged"/>
+                            <!-- 「単色」のときだけ出す色選び（ドラッグ中はプレビューにその場で反映） -->
+                            <controls:HsvColorPicker x:Name="BackgroundColorPicker" Margin="0,8,0,0" Visibility="Collapsed"/>
 
                             <TextBlock Text="{Binding [Placement_Header], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <RadioButton x:Name="PlacementBack" Content="{Binding [Placement_Back], Source={x:Static local:Loc.Instance}}" IsChecked="True" Checked="Placement_Checked"/>
@@ -275,6 +279,12 @@
 
                             <TextBlock Text="{Binding [Language_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <ComboBox x:Name="LanguageCombo" HorizontalAlignment="Stretch" SelectionChanged="LanguageCombo_SelectionChanged"/>
+
+                            <!-- 後片付け: 設定とログを消して、何も残さず終了する -->
+                            <Button x:Name="DeleteDataButton" Margin="0,20,0,0" HorizontalAlignment="Stretch" Padding="12,6"
+                                    Background="#FFC42B1C" Foreground="White" Click="DeleteData_Click"
+                                    Content="{Binding [Settings_DeleteData], Source={x:Static local:Loc.Instance}}"
+                                    ToolTip="{Binding [Settings_DeleteDataTip], Source={x:Static local:Loc.Instance}}"/>
                         </StackPanel>
                     </ScrollViewer>
                 </Border>

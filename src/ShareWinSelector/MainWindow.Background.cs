@@ -6,10 +6,10 @@ using System.Windows.Media.Imaging;
 
 namespace ShareWinSelector;
 
-/// <summary>相手に見える画面の背景（黒 / 標準画像 / 好きな画像）。</summary>
+/// <summary>相手に見える画面の背景（単色 / 標準画像 / 好きな画像）。</summary>
 public partial class MainWindow
 {
-    private const string BackgroundBlack = "Black", BackgroundDefault = "Default", BackgroundCustom = "Custom";
+    private const string BackgroundSolid = "Solid", BackgroundDefault = "Default", BackgroundCustom = "Custom";
     private const int MaxBackgroundWidth = 3840; // 4K を超える画像は縮めて GPU メモリを節約
 
     private static readonly Uri DefaultBackgroundUri = new("pack://application:,,,/Assets/background.jpg");
@@ -26,14 +26,34 @@ public partial class MainWindow
         _suppressBackgroundHandler = true;
         var options = new List<BackgroundOption>
         {
-            new(BackgroundBlack, "Background_Black"),
+            new(BackgroundSolid, "Background_Solid"),
             new(BackgroundDefault, "Background_Default"),
             new(BackgroundCustom, "Background_Custom"),
         };
         BackgroundCombo.ItemsSource = options;
         BackgroundCombo.SelectedItem = options.FirstOrDefault(o => o.Key == App.Settings.Background) ?? options[1];
         UpdateBackgroundTooltip();
+        BackgroundColorPicker.Color = SolidBackgroundColor;
+        UpdateColorPickerVisibility();
         _suppressBackgroundHandler = false;
+    }
+
+    /// <summary>単色の背景の色（選んでいなければ黒）。</summary>
+    private static Color SolidBackgroundColor =>
+        Controls.HsvColorPicker.ParseHex(App.Settings.BackgroundColor) ?? Colors.Black;
+
+    private void UpdateColorPickerVisibility() =>
+        BackgroundColorPicker.Visibility = App.Settings.Background == BackgroundSolid ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>色選びをつなぐ。ドラッグ中はその場で相手の画面（とプレビュー）に反映し、離したら保存する。</summary>
+    private void InitializeColorPicker()
+    {
+        BackgroundColorPicker.ColorChanged += c => _compositor?.SetCanvasColor(c.R, c.G, c.B);
+        BackgroundColorPicker.ColorCommitted += c =>
+        {
+            App.Settings.BackgroundColor = Controls.HsvColorPicker.ToHex(c);
+            App.Settings.Save();
+        };
     }
 
     private void BackgroundCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -61,6 +81,7 @@ public partial class MainWindow
         App.Settings.Save();
         ApplyBackground();
         UpdateBackgroundTooltip();
+        UpdateColorPickerVisibility();
     }
 
     private void UpdateBackgroundTooltip() =>
@@ -71,7 +92,10 @@ public partial class MainWindow
     {
         if (_compositor is null) return;
         var s = App.Settings;
-        if (s.Background == BackgroundBlack)
+        // 画像の下地（画像なしのときはこの色がそのまま見える）
+        var solid = s.Background == BackgroundSolid ? SolidBackgroundColor : Colors.Black;
+        _compositor.SetCanvasColor(solid.R, solid.G, solid.B);
+        if (s.Background == BackgroundSolid)
         {
             _compositor.SetBackground(null, 0, 0);
             return;

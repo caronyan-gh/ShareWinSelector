@@ -174,7 +174,14 @@ internal sealed class Compositor : IDisposable
         }
     }
 
-    /// <summary>背景画像を設定する（BGRA・乗算済みアルファの画素、null で黒）。UI スレッドから呼ぶ。</summary>
+    /// <summary>ウィンドウが無い部分を塗る色（背景画像が無いときに見える）。UI スレッドから呼ぶ。</summary>
+    public void SetCanvasColor(byte r, byte g, byte b)
+    {
+        lock (_device.SyncRoot) _canvasBrush.Color = new Color4(r / 255f, g / 255f, b / 255f, 1f);
+        _dirty = true;
+    }
+
+    /// <summary>背景画像を設定する（BGRA・乗算済みアルファの画素、null で画像なし＝単色）。UI スレッドから呼ぶ。</summary>
     public unsafe void SetBackground(byte[]? pixels, int width, int height)
     {
         _dirty = true;

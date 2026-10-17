@@ -112,9 +112,18 @@ public partial class App : Application
         CloseSplash(); // 起動途中で失敗してもスプラッシュが居座らないように
     }
 
+    /// <summary>終了するときに設定とログのフォルダを消す（「設定を削除して終了」）。</summary>
+    internal static bool DeleteDataOnExit { get; set; }
+
     protected override void OnExit(ExitEventArgs e)
     {
         Log.Info("終了");
+        if (DeleteDataOnExit)
+        {
+            // 保存もログも止めてあるので、ここで消せば何も残らない
+            try { System.IO.Directory.Delete(AppSettings.Folder, recursive: true); }
+            catch { /* 消せなくても終了はする */ }
+        }
         base.OnExit(e);
     }
 }

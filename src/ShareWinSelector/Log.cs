@@ -8,8 +8,10 @@ internal static class Log
     private static readonly object Gate = new();
     private const long MaxBytes = 1024 * 1024;
 
-    public static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ShareWinSelector", "app.log");
+    public static string FilePath { get; } = Path.Combine(AppSettings.Folder, "app.log");
+
+    /// <summary>「設定を削除して終了」のあと、ログでフォルダを作り直さないように true にする。</summary>
+    public static bool Disabled { get; set; }
 
     public static void Info(string message) => Write("INFO", message);
 
@@ -18,6 +20,7 @@ internal static class Log
 
     private static void Write(string level, string message)
     {
+        if (Disabled) return;
         try
         {
             lock (Gate)

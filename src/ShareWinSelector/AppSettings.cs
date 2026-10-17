@@ -34,11 +34,14 @@ internal sealed class AppSettings
     public bool CaptureCursor { get; set; } = true;
     public bool IncludePopups { get; set; } = true;
 
-    /// <summary>相手に見える画面の、ウィンドウが無い部分の背景（"Black" / "Default" / "Custom"）。</summary>
+    /// <summary>相手に見える画面の、ウィンドウが無い部分の背景（"Solid" / "Default" / "Custom"）。</summary>
     public string Background { get; set; } = "Default";
 
     /// <summary>Background が "Custom" のときの画像ファイル。</summary>
     public string? BackgroundPath { get; set; }
+
+    /// <summary>Background が "Solid" のときの色（"#RRGGBB"、null は黒）。</summary>
+    public string? BackgroundColor { get; set; }
 
     /// <summary>「上をクロップ」全体のオン・オフ。オンのとき、未保存のアプリは調整してから共有する。</summary>
     public bool CropMode { get; set; }
@@ -68,8 +71,14 @@ internal sealed class AppSettings
     /// <summary>出力ウィンドウの位置と大きさ（null は既定）。</summary>
     public OutputWindowState? OutputWindow { get; set; }
 
-    private static string FilePath { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ShareWinSelector", "settings.json");
+    /// <summary>設定とログを置くフォルダ（%LOCALAPPDATA%\ShareWinSelector）。アプリが書き込むのはここだけ。</summary>
+    public static string Folder { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ShareWinSelector");
+
+    private static string FilePath { get; } = Path.Combine(Folder, "settings.json");
+
+    /// <summary>「設定を削除して終了」のあと、終了処理中の保存でファイルを作り直さないように true にする。</summary>
+    public static bool SavingDisabled { get; set; }
 
     public static AppSettings Load()
     {
@@ -92,11 +101,14 @@ internal sealed class AppSettings
         CropUse ??= [];
         Placement ??= "Back";
         Background ??= "Default";
+        // 1.0 の「黒」は「単色（色を選んでいなければ黒）」になった
+        if (Background == "Black") Background = "Solid";
         return this;
     }
 
     public void Save()
     {
+        if (SavingDisabled) return;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);

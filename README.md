@@ -35,7 +35,7 @@ and keep working with your apps exactly as usual.
 - **Confirm before sharing** — a picked window is not shown until you confirm it on screen. No more sharing the wrong window by accident.
 - **Overlay only you can see** — highlight borders around shared windows, a floating toolbar and a *click to select* mode, all excluded from capture.
 - **Live preview** of what others see, thumbnail or list view, compact mode, always on top.
-- **Background** for the empty area: black, the standard wallpaper, or your own image.
+- **Background** for the empty area: a solid color of your choice (drag to pick), the standard wallpaper, or your own image.
 - **Robust** — survives GPU resets, display changes, closed windows and reused window handles.
 - Dark theme, English / Japanese UI.
 
@@ -55,6 +55,7 @@ Get the latest version from [Releases](../../releases/latest):
 | `SHA256SUMS.txt` | | Checksums of the files above. |
 
 There is no installer — just run the exe. Settings are stored in `%LOCALAPPDATA%\ShareWinSelector\`.
+To remove it, press **Delete settings and exit** at the bottom of the settings, then delete the exe. Nothing is left behind.
 
 The executables are not code-signed, so Windows SmartScreen may show *"Windows protected your PC"* the first time.
 Click **More info** → **Run anyway**. Release builds are made by [GitHub Actions](.github/workflows/release.yml) from the tagged source.

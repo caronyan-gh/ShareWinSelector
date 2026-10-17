@@ -147,6 +147,22 @@
   <data name="Settings_Header" xml:space="preserve">
     <value>設定</value>
   </data>
+  <data name="Settings_DeleteData" xml:space="preserve">
+    <value>設定を削除して終了</value>
+  </data>
+  <data name="Settings_DeleteDataTip" xml:space="preserve">
+    <value>このアプリの設定とログをすべて削除して終了します（アプリを消す前の後片付けに）</value>
+  </data>
+  <data name="Settings_DeleteDataTitle" xml:space="preserve">
+    <value>設定の削除</value>
+  </data>
+  <data name="Settings_DeleteDataConfirm" xml:space="preserve">
+    <value>ShareWinSelector の設定とログをすべて削除して終了します。
+
+{0}
+
+元に戻せません。</value>
+  </data>
   <data name="Shared_Header" xml:space="preserve">
     <value>共有中のウィンドウ</value>
   </data>
@@ -156,8 +172,8 @@
   <data name="Background_Label" xml:space="preserve">
     <value>背景（ウィンドウが無い部分に相手から見えるもの）</value>
   </data>
-  <data name="Background_Black" xml:space="preserve">
-    <value>黒</value>
+  <data name="Background_Solid" xml:space="preserve">
+    <value>単色</value>
   </data>
   <data name="Background_Default" xml:space="preserve">
     <value>標準の画像</value>

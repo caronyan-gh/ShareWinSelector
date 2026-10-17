@@ -147,6 +147,22 @@
   <data name="Settings_Header" xml:space="preserve">
     <value>Settings</value>
   </data>
+  <data name="Settings_DeleteData" xml:space="preserve">
+    <value>Delete settings and exit</value>
+  </data>
+  <data name="Settings_DeleteDataTip" xml:space="preserve">
+    <value>Removes all settings and logs of this app, then exits. Use it before deleting the app.</value>
+  </data>
+  <data name="Settings_DeleteDataTitle" xml:space="preserve">
+    <value>Delete settings</value>
+  </data>
+  <data name="Settings_DeleteDataConfirm" xml:space="preserve">
+    <value>All settings and logs of ShareWinSelector will be deleted, and the app will exit.
+
+{0}
+
+This cannot be undone.</value>
+  </data>
   <data name="Shared_Header" xml:space="preserve">
     <value>Shared windows</value>
   </data>
@@ -156,8 +172,8 @@
   <data name="Background_Label" xml:space="preserve">
     <value>Background (what others see where there are no windows)</value>
   </data>
-  <data name="Background_Black" xml:space="preserve">
-    <value>Black</value>
+  <data name="Background_Solid" xml:space="preserve">
+    <value>Solid color</value>
   </data>
   <data name="Background_Default" xml:space="preserve">
     <value>Standard image</value>
