@@ -175,6 +175,9 @@
   <data name="Background_Solid" xml:space="preserve">
     <value>単色</value>
   </data>
+  <data name="Background_PickColor" xml:space="preserve">
+    <value>色を選ぶ</value>
+  </data>
   <data name="Background_Default" xml:space="preserve">
     <value>標準の画像</value>
   </data>

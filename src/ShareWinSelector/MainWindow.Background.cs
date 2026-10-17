@@ -33,8 +33,7 @@ public partial class MainWindow
         BackgroundCombo.ItemsSource = options;
         BackgroundCombo.SelectedItem = options.FirstOrDefault(o => o.Key == App.Settings.Background) ?? options[1];
         UpdateBackgroundTooltip();
-        BackgroundColorPicker.Color = SolidBackgroundColor;
-        UpdateColorPickerVisibility();
+        UpdateSolidColorRow(SolidBackgroundColor);
         _suppressBackgroundHandler = false;
     }
 
@@ -42,18 +41,44 @@ public partial class MainWindow
     private static Color SolidBackgroundColor =>
         Controls.HsvColorPicker.ParseHex(App.Settings.BackgroundColor) ?? Colors.Black;
 
-    private void UpdateColorPickerVisibility() =>
-        BackgroundColorPicker.Visibility = App.Settings.Background == BackgroundSolid ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>[色を選ぶ] ■ #RRGGBB の行。「単色」以外では押せないようにして、色も薄く見せる。</summary>
+    private void UpdateSolidColorRow(Color color)
+    {
+        bool solid = App.Settings.Background == BackgroundSolid;
+        PickColorButton.IsEnabled = solid;
+        SolidColorSwatch.Background = new SolidColorBrush(color);
+        SolidColorText.Text = Controls.HsvColorPicker.ToHex(color);
+        SolidColorSwatch.Opacity = SolidColorText.Opacity = solid ? 1 : 0.4;
+        if (!solid) ColorPopup.IsOpen = false;
+    }
 
     /// <summary>色選びをつなぐ。ドラッグ中はその場で相手の画面（とプレビュー）に反映し、離したら保存する。</summary>
     private void InitializeColorPicker()
     {
-        BackgroundColorPicker.ColorChanged += c => _compositor?.SetCanvasColor(c.R, c.G, c.B);
+        BackgroundColorPicker.ColorChanged += c =>
+        {
+            _compositor?.SetCanvasColor(c.R, c.G, c.B);
+            UpdateSolidColorRow(c);
+        };
         BackgroundColorPicker.ColorCommitted += c =>
         {
             App.Settings.BackgroundColor = Controls.HsvColorPicker.ToHex(c);
             App.Settings.Save();
+            UpdateSolidColorRow(c);
         };
+    }
+
+    private void PickColor_Click(object sender, RoutedEventArgs e)
+    {
+        BackgroundColorPicker.Color = SolidBackgroundColor;
+        ColorPopup.IsOpen = true;
+    }
+
+    /// <summary>ポップアップは別ウィンドウなので、メイン画面と同じく画面共有に映らないようにする。</summary>
+    private void ColorPopup_Opened(object? sender, EventArgs e)
+    {
+        if (PresentationSource.FromVisual(ColorPopup.Child) is System.Windows.Interop.HwndSource source)
+            Interop.Native.ExcludeFromCapture(source.Handle);
     }
 
     private void BackgroundCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -81,7 +106,7 @@ public partial class MainWindow
         App.Settings.Save();
         ApplyBackground();
         UpdateBackgroundTooltip();
-        UpdateColorPickerVisibility();
+        UpdateSolidColorRow(SolidBackgroundColor);
     }
 
     private void UpdateBackgroundTooltip() =>

@@ -175,6 +175,9 @@ This cannot be undone.</value>
   <data name="Background_Solid" xml:space="preserve">
     <value>Solid color</value>
   </data>
+  <data name="Background_PickColor" xml:space="preserve">
+    <value>Pick a color</value>
+  </data>
   <data name="Background_Default" xml:space="preserve">
     <value>Standard image</value>
   </data>

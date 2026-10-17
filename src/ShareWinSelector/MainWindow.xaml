@@ -252,8 +252,22 @@
 
                             <TextBlock Text="{Binding [Background_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <ComboBox x:Name="BackgroundCombo" HorizontalAlignment="Stretch" SelectionChanged="BackgroundCombo_SelectionChanged"/>
-                            <!-- 「単色」のときだけ出す色選び（ドラッグ中はプレビューにその場で反映） -->
-                            <controls:HsvColorPicker x:Name="BackgroundColorPicker" Margin="0,8,0,0" Visibility="Collapsed"/>
+                            <!-- 単色の色: [色を選ぶ] ■ #RRGGBB。「単色」以外では押せない。押すとむにむにのポップアップ -->
+                            <StackPanel x:Name="SolidColorRow" Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button x:Name="PickColorButton" Padding="12,4" Click="PickColor_Click"
+                                        Content="{Binding [Background_PickColor], Source={x:Static local:Loc.Instance}}"/>
+                                <Border x:Name="SolidColorSwatch" Width="20" Height="20" CornerRadius="4" Margin="12,0,0,0"
+                                        BorderThickness="1" BorderBrush="#80FFFFFF" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="SolidColorText" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Popup x:Name="ColorPopup" PlacementTarget="{Binding ElementName=PickColorButton}" Placement="Bottom"
+                                   VerticalOffset="6" StaysOpen="False" AllowsTransparency="True" Opened="ColorPopup_Opened">
+                                <Border Background="{StaticResource BrandPanelBrush}" BorderBrush="{StaticResource BrandBorderBrush}"
+                                        BorderThickness="1" CornerRadius="8" Padding="12" Width="300">
+                                    <!-- ドラッグ中は相手の画面にその場で反映し、離したら保存する -->
+                                    <controls:HsvColorPicker x:Name="BackgroundColorPicker"/>
+                                </Border>
+                            </Popup>
 
                             <TextBlock Text="{Binding [Placement_Header], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <RadioButton x:Name="PlacementBack" Content="{Binding [Placement_Back], Source={x:Static local:Loc.Instance}}" IsChecked="True" Checked="Placement_Checked"/>
