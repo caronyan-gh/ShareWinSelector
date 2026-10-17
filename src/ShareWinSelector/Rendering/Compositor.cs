@@ -447,7 +447,11 @@ internal sealed class Compositor : IDisposable
         foreach (var h in manual)
         {
             context.Threads.Add(Native.GetWindowThreadProcessId(h, out _));
-            if (Native.TryGetFrameBounds(h, out var r)) context.Bounds.Add(r);
+            if (!Native.TryGetFrameBounds(h, out var r)) continue;
+            context.Bounds.Add(r);
+            // 上をクロップして隠している帯（物理ピクセル）
+            int px = cropDip.TryGetValue(h, out float d) ? CropPx(h, d, r.Height) : 0;
+            if (px > 0) context.HiddenBands.Add(new Native.RECT { Left = r.Left, Top = r.Top, Right = r.Right, Bottom = r.Top + px });
         }
         bool includePopups = _includePopups && manual.Count > 0;
 
@@ -464,14 +468,11 @@ internal sealed class Compositor : IDisposable
             // 別の仮想デスクトップなど、自分の画面に出ていないものは相手にも見せない
             if (Native.IsCloaked(hWnd)) return true;
             if (!Native.TryGetFrameBounds(hWnd, out var rc) || rc.Width <= 0 || rc.Height <= 0) return true;
+            // クロップで隠している部分（タブ・アドレスバー）から出てきたポップアップは映さない。
+            // タブのホバーカード（別のタブの名前と縮小画像）やアドレスバーの入力候補（閲覧履歴）が漏れないように
+            if (isPopup && StartsInHiddenBand(rc, context.HiddenBands)) return true;
             if (isPopup) wantedPopups.Add(hWnd);
-            int cropPx = 0;
-            if (isManual && cropDip.TryGetValue(hWnd, out float dip) && dip > 0)
-            {
-                // 保存は DIP なので、今いるモニターの DPI で物理ピクセルに直す
-                uint dpi = Native.GetDpiForWindow(hWnd);
-                cropPx = Math.Min(rc.Height, (int)Math.Round(dip * (dpi == 0 ? 96 : dpi) / 96.0));
-            }
+            int cropPx = isManual && cropDip.TryGetValue(hWnd, out float dip) ? CropPx(hWnd, dip, rc.Height) : 0;
             order.Add((hWnd, rc, cropPx));
             return true;
         }, IntPtr.Zero);
@@ -498,7 +499,31 @@ internal sealed class Compositor : IDisposable
         public HashSet<IntPtr> Manual { get; } = manual;
         public HashSet<uint> Threads { get; } = [];
         public List<Native.RECT> Bounds { get; } = [];
+        /// <summary>選択ウィンドウの、上をクロップして隠している帯。</summary>
+        public List<Native.RECT> HiddenBands { get; } = [];
         public uint ShellPid { get; } = shellPid;
+    }
+
+    /// <summary>上から隠す量（DIP）を、今いるモニターの DPI で物理ピクセルに直す。</summary>
+    private static int CropPx(IntPtr hwnd, float dip, int height)
+    {
+        if (dip <= 0) return 0;
+        uint dpi = Native.GetDpiForWindow(hwnd);
+        return Math.Min(height, (int)Math.Round(dip * (dpi == 0 ? 96 : dpi) / 96.0));
+    }
+
+    // 隠している帯の下端から少しはみ出して出るもの（タブの下辺に付いて出るホバーカードなど）も含める
+    private const int HiddenBandMargin = 6;
+
+    /// <summary>ポップアップの上端が、隠している帯の中（下端の少し下まで）にあるか。</summary>
+    private static bool StartsInHiddenBand(Native.RECT popup, List<Native.RECT> bands)
+    {
+        foreach (var b in bands)
+        {
+            bool overlapsX = popup.Left < b.Right && popup.Right > b.Left;
+            if (overlapsX && popup.Top >= b.Top - HiddenBandMargin && popup.Top < b.Bottom + HiddenBandMargin) return true;
+        }
+        return false;
     }
 
     /// <summary>エクスプローラー（タスクバー・デスクトップを持つシェル）のプロセス ID。</summary>
