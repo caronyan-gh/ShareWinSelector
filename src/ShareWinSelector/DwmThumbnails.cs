@@ -17,6 +17,10 @@ internal sealed class DwmThumbnails : IDisposable
         public required IntPtr Thumbnail;
         public required bool ClientAreaOnly;
         public FrameworkElement? Viewport;
+        // 前回 DWM に送った内容（同じなら送り直さない）。Applied が false なら未送信
+        public bool Applied;
+        public bool LastVisible;
+        public Native.RECT LastDest, LastSource;
     }
 
     private readonly Window _window;
@@ -61,25 +65,33 @@ internal sealed class DwmThumbnails : IDisposable
 
     private void Update(FrameworkElement placeholder, Entry entry)
     {
+        bool visible = TryGetLayout(placeholder, entry, out var dest, out var source);
+        // レイアウトのたびに呼ばれるので、位置も表示も変わっていなければ DWM に送らない
+        if (entry.Applied && entry.LastVisible == visible
+            && (!visible || (SameRect(entry.LastDest, dest) && SameRect(entry.LastSource, source)))) return;
+
         var props = new Native.DWM_THUMBNAIL_PROPERTIES
         {
             dwFlags = Native.DWM_TNP_VISIBLE | Native.DWM_TNP_RECTDESTINATION | Native.DWM_TNP_RECTSOURCE
                       | Native.DWM_TNP_OPACITY | Native.DWM_TNP_SOURCECLIENTAREAONLY,
             opacity = 255,
             fSourceClientAreaOnly = false,
+            fVisible = visible,
         };
-
-        if (!TryGetLayout(placeholder, entry, out var dest, out var source))
+        if (visible)
         {
-            props.fVisible = false;
-            Native.DwmUpdateThumbnailProperties(entry.Thumbnail, ref props);
-            return;
+            props.rcDestination = dest;
+            props.rcSource = source;
         }
-        props.fVisible = true;
-        props.rcDestination = dest;
-        props.rcSource = source;
         Native.DwmUpdateThumbnailProperties(entry.Thumbnail, ref props);
+        entry.Applied = true;
+        entry.LastVisible = visible;
+        entry.LastDest = dest;
+        entry.LastSource = source;
     }
+
+    private static bool SameRect(Native.RECT a, Native.RECT b) =>
+        a.Left == b.Left && a.Top == b.Top && a.Right == b.Right && a.Bottom == b.Bottom;
 
     /// <summary>表示先（このウィンドウのクライアント座標、物理ピクセル）と元画像の範囲を求める。</summary>
     private bool TryGetLayout(FrameworkElement placeholder, Entry entry, out Native.RECT dest, out Native.RECT source)

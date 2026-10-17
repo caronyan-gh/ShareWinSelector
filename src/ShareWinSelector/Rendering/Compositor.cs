@@ -77,6 +77,13 @@ internal sealed class Compositor : IDisposable
     private readonly Thread _renderThread;
     private volatile bool _running = true;
 
+    // 何も変わっていないフレームは描き直さない。ただし会議ソフトが「止まった」と見なさないよう、この間隔では必ず描く
+    private static readonly TimeSpan IdleRedrawInterval = TimeSpan.FromMilliseconds(250);
+    // 設定やサイズの変更など、次のフレームで必ず描き直してほしいとき true
+    private volatile bool _dirty = true;
+    // 前回描いた配置（描画スレッド専用）
+    private List<(IntPtr Hwnd, Native.RECT Bounds, int CropPx)> _lastOrder = [];
+
     /// <summary>キャプチャ対象が閉じられた（ワーカースレッドから通知）。</summary>
     public event Action<IntPtr>? SourceClosed;
 
@@ -138,7 +145,11 @@ internal sealed class Compositor : IDisposable
     public Native.RECT Canvas
     {
         get { lock (_device.SyncRoot) return _canvas; }
-        set { lock (_device.SyncRoot) _canvas = value; }
+        set
+        {
+            lock (_device.SyncRoot) _canvas = value;
+            _dirty = true;
+        }
     }
 
     public bool CaptureCursor
@@ -156,12 +167,17 @@ internal sealed class Compositor : IDisposable
     public bool IncludePopups
     {
         get => _includePopups;
-        set => _includePopups = value;
+        set
+        {
+            _includePopups = value;
+            _dirty = true;
+        }
     }
 
     /// <summary>背景画像を設定する（BGRA・乗算済みアルファの画素、null で黒）。UI スレッドから呼ぶ。</summary>
     public unsafe void SetBackground(byte[]? pixels, int width, int height)
     {
+        _dirty = true;
         lock (_device.SyncRoot)
         {
             _background?.Dispose();
@@ -209,6 +225,7 @@ internal sealed class Compositor : IDisposable
             s.CropTopDip = (float)Math.Max(0, cropTopDip);
             s.Hidden = hidden;
         }
+        _dirty = true;
     }
 
     private void AddWindowCore(WindowIdentity identity, bool isAuto, double cropTopDip = 0, bool hidden = false)
@@ -221,12 +238,17 @@ internal sealed class Compositor : IDisposable
         {
             // 閉じたら即座に描画対象から外す（HWND の使い回しで古い絵や別のウィンドウが映らないように）
             source.Dead = true;
+            _dirty = true;
             if (!isAuto) SourceClosed?.Invoke(identity.Handle);
         };
         lock (_device.SyncRoot)
         {
             // UI スレッドと描画スレッドが同時に追加した場合は先勝ち
-            if (_sources.TryAdd(identity.Handle, source)) return;
+            if (_sources.TryAdd(identity.Handle, source))
+            {
+                _dirty = true;
+                return;
+            }
         }
         capture.Dispose();
     }
@@ -239,6 +261,7 @@ internal sealed class Compositor : IDisposable
         {
             if (!_sources.Remove(hwnd, out source)) return;
         }
+        _dirty = true;
         // フレームハンドラがロック待ちの可能性があるので、キャプチャ停止はロックの外で
         source.Capture.Dispose();
         lock (_device.SyncRoot) source.DisposeResources();
@@ -263,6 +286,7 @@ internal sealed class Compositor : IDisposable
             _swapChain.ResizeBuffers(2, (uint)width, (uint)height, BufferFormat, SwapChainFlags.None).CheckError();
             CreateTarget();
         }
+        _dirty = true;
     }
 
     private void OnFrame(Source source, IDXGISurface surface, int contentWidth, int contentHeight)
@@ -302,14 +326,24 @@ internal sealed class Compositor : IDisposable
     {
         var frameTime = TimeSpan.FromSeconds(1.0 / TargetFps);
         var sw = Stopwatch.StartNew();
+        var lastRender = TimeSpan.Zero;
         int consecutiveErrors = 0;
         while (_running)
         {
             var start = sw.Elapsed;
             try
             {
+                // 各ウィンドウの最新フレームを受け取る（このときだけコピーするので、30 回/秒より多くは写さない）
+                bool fresh = PullFrames();
                 var order = GetDrawOrder();
-                lock (_device.SyncRoot) RenderCore(order);
+                // 中身も配置も設定も変わっていなければ描き直さない（GPU を休ませる）
+                if (fresh || _dirty || !SameOrder(order, _lastOrder) || start - lastRender >= IdleRedrawInterval)
+                {
+                    _dirty = false;
+                    lock (_device.SyncRoot) RenderCore(order);
+                    _lastOrder = order;
+                    lastRender = start;
+                }
                 consecutiveErrors = 0;
             }
             catch (Exception ex)
@@ -328,6 +362,30 @@ internal sealed class Compositor : IDisposable
             var remain = frameTime - (sw.Elapsed - start);
             if (remain > TimeSpan.Zero) Thread.Sleep(remain);
         }
+    }
+
+    /// <summary>預かっている最新フレームを全ウィンドウ分受け取ってコピーする。1 つでも新しい絵があれば true。</summary>
+    private bool PullFrames()
+    {
+        List<Source> snapshot;
+        lock (_device.SyncRoot) snapshot = [.. _sources.Values];
+        bool any = false;
+        foreach (var s in snapshot)
+            if (!s.Dead && s.Capture.DeliverPending()) any = true;
+        return any;
+    }
+
+    private static bool SameOrder(List<(IntPtr Hwnd, Native.RECT Bounds, int CropPx)> a, List<(IntPtr Hwnd, Native.RECT Bounds, int CropPx)> b)
+    {
+        if (a.Count != b.Count) return false;
+        for (int i = 0; i < a.Count; i++)
+        {
+            var (x, y) = (a[i], b[i]);
+            if (x.Hwnd != y.Hwnd || x.CropPx != y.CropPx
+                || x.Bounds.Left != y.Bounds.Left || x.Bounds.Top != y.Bounds.Top
+                || x.Bounds.Right != y.Bounds.Right || x.Bounds.Bottom != y.Bounds.Bottom) return false;
+        }
+        return true;
     }
 
     // デバッグ: SWS_SIMULATE_DEVICE_LOST_SEC=<秒> で、プロセス内で 1 回だけデバイス喪失を模擬する
@@ -396,10 +454,11 @@ internal sealed class Compositor : IDisposable
         // EnumWindows は手前 → 奥の順
         Native.EnumWindows((hWnd, _) =>
         {
+            // 見えていないもの（数百ある）は、重いポップアップ判定より先に外す
+            if (!Native.IsWindowVisible(hWnd) || Native.IsIconic(hWnd)) return true;
             bool isManual = manual.Contains(hWnd);
             bool isPopup = !isManual && includePopups && IsPopupOfSelected(hWnd, context);
             if (!isManual && !isPopup) return true;
-            if (!Native.IsWindowVisible(hWnd) || Native.IsIconic(hWnd)) return true;
             // 別の仮想デスクトップなど、自分の画面に出ていないものは相手にも見せない
             if (Native.IsCloaked(hWnd)) return true;
             if (!Native.TryGetFrameBounds(hWnd, out var rc) || rc.Width <= 0 || rc.Height <= 0) return true;
@@ -455,8 +514,7 @@ internal sealed class Compositor : IDisposable
     /// </summary>
     private bool IsPopupOfSelected(IntPtr hWnd, PopupContext ctx)
     {
-        string cls = Native.GetClassName(hWnd);
-        if (ExcludedPopupClasses.Contains(cls)) return false;
+        // 毎フレーム全ウィンドウに対して呼ばれるので、安い判定で先にふるい落とし、クラス名は候補だけ調べる
 
         // 選択ウィンドウが所有するダイアログ等。GA_ROOTOWNER は WS_POPUP 以外の所有ウィンドウを
         // たどれないので、GW_OWNER を自前でたどる
@@ -465,7 +523,7 @@ internal sealed class Compositor : IDisposable
         {
             for (int depth = 0; owner != IntPtr.Zero && depth < 32; depth++)
             {
-                if (ctx.Manual.Contains(owner)) return true;
+                if (ctx.Manual.Contains(owner)) return !ExcludedPopupClasses.Contains(Native.GetClassName(hWnd));
                 owner = Native.GetWindow(owner, Native.GW_OWNER);
             }
             return false;
@@ -474,6 +532,8 @@ internal sealed class Compositor : IDisposable
         // 所有者なし: 選択ウィンドウと同じ UI スレッドのものに限る
         uint tid = Native.GetWindowThreadProcessId(hWnd, out uint pid);
         if (pid == _ownPid || !ctx.Threads.Contains(tid)) return false;
+        string cls = Native.GetClassName(hWnd);
+        if (ExcludedPopupClasses.Contains(cls)) return false;
         if (IsMainWindowLike(hWnd)) return false; // 同じスレッドの別のメインウィンドウは映さない
 
         // シェル（エクスプローラー）はタスクバーやタスク切り替えなど他アプリの中身を出すウィンドウを

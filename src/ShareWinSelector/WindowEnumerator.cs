@@ -117,16 +117,29 @@ internal static class WindowEnumerator
         return hWnd;
     }
 
+    // プロセス名は 2 秒ごとの一覧更新のたびに引くと重いので覚えておく（PID の使い回しに備えて、たまに捨てる）
+    private static readonly Dictionary<uint, string> ProcessNames = [];
+    private static long _processNamesClearedTick = Environment.TickCount64;
+
     private static string GetProcessName(uint pid)
     {
+        if (Environment.TickCount64 - _processNamesClearedTick > 60_000)
+        {
+            ProcessNames.Clear();
+            _processNamesClearedTick = Environment.TickCount64;
+        }
+        if (ProcessNames.TryGetValue(pid, out var cached)) return cached;
+        string name;
         try
         {
             using var p = Process.GetProcessById((int)pid);
-            return p.ProcessName;
+            name = p.ProcessName;
         }
         catch
         {
-            return "?";
+            name = "?";
         }
+        ProcessNames[pid] = name;
+        return name;
     }
 }

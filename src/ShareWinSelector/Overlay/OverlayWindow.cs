@@ -30,6 +30,12 @@ internal sealed class OverlayWindow : Window
     // 前回描いた内容。null で次回必ず描き直す
     private string? _lastSignature;
 
+    // 見張る間隔: 操作中・何かが動いている間は細かく（枠がウィンドウに付いてくるように）、落ち着いたら間引く
+    private static readonly TimeSpan BusyInterval = TimeSpan.FromMilliseconds(33);
+    private static readonly TimeSpan IdleInterval = TimeSpan.FromMilliseconds(150);
+    private static readonly TimeSpan SettleTime = TimeSpan.FromMilliseconds(600);
+    private long _lastChangeTick;
+
     /// <summary>選択モード中にウィンドウがクリックされた（ルートのメインウィンドウ）。</summary>
     public event Action<IntPtr>? WindowClicked;
 
@@ -83,8 +89,15 @@ internal sealed class OverlayWindow : Window
         root.Children.Add(_editLayer);
         Content = root;
 
-        _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
+        _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = BusyInterval };
         _timer.Tick += (_, _) => Refresh();
+        // 隠している間（オーバーレイをオフにしたとき）は見張りも止める
+        IsVisibleChanged += (_, _) =>
+        {
+            if (_hwnd == IntPtr.Zero) return;
+            if (IsVisible) { _lastSignature = null; _timer.Start(); }
+            else _timer.Stop();
+        };
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(ApplyBounds);
         MouseMove += OnMouseMove;
         MouseLeftButtonDown += OnLeftDown;
@@ -335,20 +348,26 @@ internal sealed class OverlayWindow : Window
 
     private List<VisibleWindow> GetVisibleWindows()
     {
-        var monitors = MonitorEnumerator.GetMonitors();
+        // モニター一覧はタスクバーを見つけたときだけ取る（見張りのたびに取ると重い）
+        List<MonitorInfo>? monitors = null;
         return WindowEnumerator.GetVisibleWindowsTopDown()
-            .Where(w => w.Handle != _hwnd && w.Handle != ToolbarHandle && !w.IsClickThrough && !IsHiddenTaskbar(w, monitors))
+            .Where(w => w.Handle != _hwnd && w.Handle != ToolbarHandle && !w.IsClickThrough
+                        && !(IsTaskbar(w.Handle) && IsOutsideAllMonitors(w, monitors ??= MonitorEnumerator.GetMonitors())))
             .ToList();
     }
 
-    /// <summary>
-    /// 自動で隠れたタスクバーか。隠れたタスクバーはモニター外へずらされるだけなので、
-    /// 隣のモニターに食い込んだ（＝1 つのモニターに収まっていない）状態になる。そこには実際には何も描かれない。
-    /// </summary>
-    private static bool IsHiddenTaskbar(VisibleWindow w, List<MonitorInfo> monitors)
+    private static bool IsTaskbar(IntPtr hwnd)
     {
-        string cls = Native.GetClassName(w.Handle);
-        if (cls != "Shell_TrayWnd" && cls != "Shell_SecondaryTrayWnd") return false;
+        string cls = Native.GetClassName(hwnd);
+        return cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd";
+    }
+
+    /// <summary>
+    /// 1 つのモニターに収まっていないか（自動で隠れたタスクバーの判定用）。隠れたタスクバーはモニター外へずらされるだけなので、
+    /// 隣のモニターに食い込んだ状態になる。そこには実際には何も描かれない。
+    /// </summary>
+    private static bool IsOutsideAllMonitors(VisibleWindow w, List<MonitorInfo> monitors)
+    {
         var b = w.Bounds;
         return !monitors.Any(m =>
             b.Left >= m.Bounds.Left && b.Top >= m.Bounds.Top && b.Right <= m.Bounds.Right && b.Bottom <= m.Bounds.Bottom);
@@ -371,6 +390,18 @@ internal sealed class OverlayWindow : Window
         return IntPtr.Zero;
     }
 
+    /// <summary>
+    /// 見張る間隔を決める。選択モード・調整中・ウィンドウが動いている間は 30 回/秒（枠が遅れて付いてこないように）、
+    /// 落ち着いたら 7 回/秒に落とす（動き出したら次の見張りで気づいて細かくなる）。
+    /// </summary>
+    private void AdjustInterval()
+    {
+        bool busy = _selectMode || IsCropEditing || _dragging
+                    || Environment.TickCount64 - _lastChangeTick < (long)SettleTime.TotalMilliseconds;
+        var interval = busy ? BusyInterval : IdleInterval;
+        if (_timer.Interval != interval) _timer.Interval = interval;
+    }
+
     private static void AppendSignature(System.Text.StringBuilder sig, OverlayItem item)
     {
         sig.Append(item.Bounds).Append('|');
@@ -383,7 +414,8 @@ internal sealed class OverlayWindow : Window
     {
         if (_hwnd == IntPtr.Zero) return;
         var selected = _getSelected();
-        var windows = GetVisibleWindows();
+        // 枠も選択モードも調整も無いとき（何も共有していないとき）は、ウィンドウを調べずに済ませる
+        var windows = selected.Count > 0 || IsCropEditing || _selectMode ? GetVisibleWindows() : [];
         double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
 
         Rect ToDip(Native.RECT r) => new(
@@ -473,7 +505,10 @@ internal sealed class OverlayWindow : Window
 
         // 変化が無ければ再描画しない
         string signature = sig.ToString();
-        if (signature == _lastSignature) return;
+        bool changed = signature != _lastSignature;
+        if (changed) _lastChangeTick = Environment.TickCount64;
+        AdjustInterval();
+        if (!changed) return;
         _lastSignature = signature;
         _surface.Update(items, _showBorders, _selectMode, hover, hoverSelected, cursor);
     }
