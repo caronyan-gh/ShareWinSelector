@@ -97,6 +97,16 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowDisplayAffinity(IntPtr hWnd, out uint dwAffinity);
+
+    /// <summary>
+    /// そのアプリ自身がキャプチャを禁止しているか（Teams の共有コントロール バーなど）。
+    /// 共有しても真っ黒にしかならない。ほかのプロセスのウィンドウでも読める。
+    /// </summary>
+    public static bool BlocksCapture(IntPtr hWnd) =>
+        GetWindowDisplayAffinity(hWnd, out uint affinity) && affinity != 0;
+
     /// <summary>
     /// 自分専用 UI（メイン画面・オーバーレイ・ツールバー）をキャプチャから除外する。
     /// デバッグビルドではスクショで確認できるよう除外しない（SWS_EXCLUDE_FROM_CAPTURE=1 なら除外）。

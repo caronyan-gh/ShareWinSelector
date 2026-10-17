@@ -68,7 +68,9 @@ internal static class WindowEnumerator
         if (Native.IsCloaked(hWnd)) return false;
         if (string.IsNullOrWhiteSpace(Native.GetTitle(hWnd))) return false;
         Native.GetWindowThreadProcessId(hWnd, out uint pid);
-        return pid != OwnPid;
+        if (pid == OwnPid) return false;
+        // アプリ自身がキャプチャを禁止しているもの（会議ソフトの操作バーなど）は、共有しても真っ黒なので出さない
+        return !Native.BlocksCapture(hWnd);
     }
 
     /// <summary>実際に画面に出ているトップレベルウィンドウを手前 → 奥の順で返す。</summary>

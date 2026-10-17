@@ -59,7 +59,7 @@ Click **More info** → **Run anyway**. Release builds are made by [GitHub Actio
 
 1. Start **ShareWinSelector** and choose the **monitor** to share.
 2. Check the windows you want to show — in the thumbnails / list, or with **Click to select** on the toolbar.
-3. In Teams (or any other tool), **share the window** named **`ShareWinSelector - Shared output`**.
+3. In Teams (or any other tool), **share the window** named **`🖥️ ShareWinSelector - Shared output`**.
 4. Work normally. Others see only the checked windows, in place.
 
 **Where to put the output window** (Settings → *Output window placement*)

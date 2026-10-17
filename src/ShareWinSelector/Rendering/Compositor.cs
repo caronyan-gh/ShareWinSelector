@@ -459,6 +459,8 @@ internal sealed class Compositor : IDisposable
             bool isManual = manual.Contains(hWnd);
             bool isPopup = !isManual && includePopups && IsPopupOfSelected(hWnd, context);
             if (!isManual && !isPopup) return true;
+            // キャプチャを禁止しているポップアップは、黒い四角で下を隠すより描かない方がまし
+            if (isPopup && Native.BlocksCapture(hWnd)) return true;
             // 別の仮想デスクトップなど、自分の画面に出ていないものは相手にも見せない
             if (Native.IsCloaked(hWnd)) return true;
             if (!Native.TryGetFrameBounds(hWnd, out var rc) || rc.Width <= 0 || rc.Height <= 0) return true;

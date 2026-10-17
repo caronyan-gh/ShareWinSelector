@@ -79,10 +79,10 @@
     <value>（確認待ち {0} 個）</value>
   </data>
   <data name="Status_ShareHint" xml:space="preserve">
-    <value>Teams では「{0}」をウィンドウ共有してください。</value>
+    <value>「{0}」をウィンドウ共有してください。</value>
   </data>
   <data name="Output_Title" xml:space="preserve">
-    <value>ShareWinSelector - 共有用出力</value>
+    <value>🖥️ ShareWinSelector - 共有用出力</value>
   </data>
   <data name="Overlay_SharedTag" xml:space="preserve">
     <value>共有中</value>

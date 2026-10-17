@@ -79,10 +79,10 @@
     <value> ({0} waiting for confirmation)</value>
   </data>
   <data name="Status_ShareHint" xml:space="preserve">
-    <value>In Teams, share the window "{0}".</value>
+    <value>Share the window "{0}" in your meeting app.</value>
   </data>
   <data name="Output_Title" xml:space="preserve">
-    <value>ShareWinSelector - Shared output</value>
+    <value>🖥️ ShareWinSelector - Shared output</value>
   </data>
   <data name="Overlay_SharedTag" xml:space="preserve">
     <value>Shared</value>
