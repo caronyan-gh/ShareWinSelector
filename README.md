@@ -11,6 +11,10 @@
   English | <a href="README.ja.md">日本語</a>
 </p>
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Left: your screen, with the picked windows outlined. Right: what others see — only the picked windows, at their real positions. The chat and the notification never appear on the right." width="100%">
+</p>
+
 ---
 
 Screen sharing in online meetings such as Teams usually gives you two choices: share **one window**, or share **the whole screen**.
