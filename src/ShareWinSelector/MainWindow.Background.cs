@@ -31,6 +31,9 @@ public partial class MainWindow
             new(BackgroundCustom, "Background_Custom"),
         };
         BackgroundCombo.ItemsSource = options;
+        // 項目は record なので、言語を切り替えて作り直しても「同じ選択」と見なされて表示が古い言語のまま残る。
+        // いったん外してから選び直す
+        BackgroundCombo.SelectedItem = null;
         BackgroundCombo.SelectedItem = options.FirstOrDefault(o => o.Key == App.Settings.Background) ?? options[1];
         UpdateBackgroundTooltip();
         UpdateSolidColorRow(SolidBackgroundColor);
