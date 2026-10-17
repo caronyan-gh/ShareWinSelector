@@ -25,7 +25,8 @@ internal sealed class Compositor : IDisposable
     {
         public WindowIdentity Identity { get; } = identity;
         public IntPtr Hwnd => Identity.Handle;
-        public WindowCapture Capture { get; } = capture;
+        /// <summary>キャプチャ。カーソルの有無を切り替えたときに作り直す（直前の絵は Texture に残したまま）。</summary>
+        public volatile WindowCapture Capture = capture;
         /// <summary>ユーザーが選んだのではなく、ポップアップとして自動追加されたもの。</summary>
         public bool IsAuto { get; } = isAuto;
         /// <summary>キャプチャ対象が閉じられた（WGC の Closed）。以後は描かず、次のフレームで外す。</summary>
@@ -157,9 +158,28 @@ internal sealed class Compositor : IDisposable
         get => _captureCursor;
         set
         {
+            if (_captureCursor == value) return;
             _captureCursor = value;
-            lock (_device.SyncRoot)
-                foreach (var s in _sources.Values) s.Capture.CaptureCursor = value;
+            // 設定を変えるだけだと、ウィンドウの中身が変わるまで新しい絵が来ず、止まったカーソルの絵が残る。
+            // キャプチャを作り直すと最初の 1 枚がすぐ届くので、それで描き直す（届くまでは直前の絵のまま＝ちらつかない）
+            List<Source> snapshot;
+            lock (_device.SyncRoot) snapshot = [.. _sources.Values];
+            foreach (var s in snapshot)
+            {
+                if (s.Dead) continue;
+                WindowCapture fresh;
+                try { fresh = new WindowCapture(_device, s.Hwnd, value); }
+                catch
+                {
+                    // 作り直せなければ、設定だけ変える（次に中身が変わったときに反映される）
+                    s.Capture.CaptureCursor = value;
+                    continue;
+                }
+                Hook(s, fresh);
+                var old = s.Capture;
+                s.Capture = fresh;
+                old.Dispose();
+            }
         }
     }
 
@@ -240,14 +260,7 @@ internal sealed class Compositor : IDisposable
         var capture = new WindowCapture(_device, identity.Handle, _captureCursor);
         // クロップは描き始める前に決めておく（最初のフレームでタブ名が映らないように）
         var source = new Source(identity, capture, isAuto) { CropTopDip = (float)Math.Max(0, cropTopDip), Hidden = hidden };
-        capture.FrameArrived += (surface, w, h) => OnFrame(source, surface, w, h);
-        capture.Closed += () =>
-        {
-            // 閉じたら即座に描画対象から外す（HWND の使い回しで古い絵や別のウィンドウが映らないように）
-            source.Dead = true;
-            _dirty = true;
-            if (!isAuto) SourceClosed?.Invoke(identity.Handle);
-        };
+        Hook(source, capture);
         lock (_device.SyncRoot)
         {
             // UI スレッドと描画スレッドが同時に追加した場合は先勝ち
@@ -258,6 +271,20 @@ internal sealed class Compositor : IDisposable
             }
         }
         capture.Dispose();
+    }
+
+    /// <summary>キャプチャのフレームと「閉じた」通知を、このソースにつなぐ。</summary>
+    private void Hook(Source source, WindowCapture capture)
+    {
+        capture.FrameArrived += (surface, w, h) => OnFrame(source, surface, w, h);
+        capture.Closed += () =>
+        {
+            // 閉じたら即座に描画対象から外す（HWND の使い回しで古い絵や別のウィンドウが映らないように）
+            if (source.Dead) return;
+            source.Dead = true;
+            _dirty = true;
+            if (!source.IsAuto) SourceClosed?.Invoke(source.Hwnd);
+        };
     }
 
     /// <summary>キャプチャ対象を外す（UI スレッド）。</summary>
