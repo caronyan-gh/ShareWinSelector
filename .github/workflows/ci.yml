@@ -1,0 +1,27 @@
+# push / プルリクエストのたびに、Windows 上でビルドが通るかを確かめる
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build (Release)
+        run: dotnet build src/ShareWinSelector -c Release
+
+      - name: Build (Debug)
+        run: dotnet build src/ShareWinSelector -c Debug

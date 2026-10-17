@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Monitor_Label" xml:space="preserve">
+    <value>Monitor to share</value>
+  </data>
+  <data name="Monitor_Primary" xml:space="preserve">
+    <value>(primary)</value>
+  </data>
+  <data name="Language_Label" xml:space="preserve">
+    <value>Language</value>
+  </data>
+  <data name="Language_Auto" xml:space="preserve">
+    <value>Automatic (system)</value>
+  </data>
+  <data name="Windows_Header" xml:space="preserve">
+    <value>Windows to share (only checked windows are visible to others)</value>
+  </data>
+  <data name="Refresh" xml:space="preserve">
+    <value>Refresh list</value>
+  </data>
+  <data name="UncheckAll" xml:space="preserve">
+    <value>Uncheck all</value>
+  </data>
+  <data name="Placement_Header" xml:space="preserve">
+    <value>Output window placement</value>
+  </data>
+  <data name="Placement_Back" xml:space="preserve">
+    <value>Behind all windows</value>
+  </data>
+  <data name="Placement_Normal" xml:space="preserve">
+    <value>Normal (bring to front)</value>
+  </data>
+  <data name="Placement_OffScreen" xml:space="preserve">
+    <value>Off-screen</value>
+  </data>
+  <data name="Placement_OffScreenNote" xml:space="preserve">
+    <value>(not for Zoom)</value>
+  </data>
+  <data name="Option_Overlay" xml:space="preserve">
+    <value>Show highlight borders and toolbar on my screen (not visible to others)</value>
+  </data>
+  <data name="Option_Cursor" xml:space="preserve">
+    <value>Include the mouse cursor</value>
+  </data>
+  <data name="Option_Popups" xml:space="preserve">
+    <value>Include context menus, dialogs, etc. of the selected apps</value>
+  </data>
+  <data name="Status_NotSupported" xml:space="preserve">
+    <value>Windows.Graphics.Capture is not supported on this system.</value>
+  </data>
+  <data name="Status_Recovering" xml:space="preserve">
+    <value>Recovering from a GPU reset…</value>
+  </data>
+  <data name="Status_ElevatedWindow" xml:space="preserve">
+    <value>"{0}" is running as administrator and cannot be shared. Run this app as administrator.</value>
+  </data>
+  <data name="Status_CaptureFailed" xml:space="preserve">
+    <value>Failed to start capture: {0} ({1})</value>
+  </data>
+  <data name="Status_NoneShared" xml:space="preserve">
+    <value>No windows are being shared.</value>
+  </data>
+  <data name="Status_Sharing" xml:space="preserve">
+    <value>Sharing {0} window(s).</value>
+  </data>
+  <data name="Status_Pending" xml:space="preserve">
+    <value> ({0} waiting for confirmation)</value>
+  </data>
+  <data name="Status_ShareHint" xml:space="preserve">
+    <value>In Teams, share the window "{0}".</value>
+  </data>
+  <data name="Output_Title" xml:space="preserve">
+    <value>ShareWinSelector - Shared output</value>
+  </data>
+  <data name="Overlay_SharedTag" xml:space="preserve">
+    <value>Shared</value>
+  </data>
+  <data name="Overlay_ClickToAdd" xml:space="preserve">
+    <value>Click to share</value>
+  </data>
+  <data name="Overlay_ClickToRemove" xml:space="preserve">
+    <value>Click to stop sharing</value>
+  </data>
+  <data name="Toolbar_DragTip" xml:space="preserve">
+    <value>Drag to move</value>
+  </data>
+  <data name="Toolbar_Select" xml:space="preserve">
+    <value>Click to select</value>
+  </data>
+  <data name="Toolbar_SelectTip" xml:space="preserve">
+    <value>Click windows on screen to add or remove them (Esc or right-click to finish)</value>
+  </data>
+  <data name="Toolbar_Border" xml:space="preserve">
+    <value>Borders</value>
+  </data>
+  <data name="Toolbar_BorderTip" xml:space="preserve">
+    <value>Show or hide highlight borders</value>
+  </data>
+  <data name="Toolbar_Settings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="Toolbar_SettingsTip" xml:space="preserve">
+    <value>Open the main window</value>
+  </data>
+  <data name="Toolbar_NoneShared" xml:space="preserve">
+    <value>Not sharing</value>
+  </data>
+  <data name="Toolbar_Sharing" xml:space="preserve">
+    <value>● Sharing {0}</value>
+  </data>
+  <data name="Header_PinTip" xml:space="preserve">
+    <value>Keep on top</value>
+  </data>
+  <data name="Header_CompactTip" xml:space="preserve">
+    <value>Compact view</value>
+  </data>
+  <data name="Header_ExpandTip" xml:space="preserve">
+    <value>Normal view</value>
+  </data>
+  <data name="Row_BringToFrontTip" xml:space="preserve">
+    <value>Bring this window to the front</value>
+  </data>
+  <data name="View_MonitorOnlyTip" xml:space="preserve">
+    <value>Show only windows on the shared monitor</value>
+  </data>
+  <data name="View_ListTip" xml:space="preserve">
+    <value>List</value>
+  </data>
+  <data name="View_ThumbnailsTip" xml:space="preserve">
+    <value>Thumbnails</value>
+  </data>
+  <data name="Preview_Header" xml:space="preserve">
+    <value>What others see</value>
+  </data>
+  <data name="Settings_Header" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="Shared_Header" xml:space="preserve">
+    <value>Shared windows</value>
+  </data>
+  <data name="Chip_RemoveTip" xml:space="preserve">
+    <value>Stop sharing</value>
+  </data>
+  <data name="Background_Label" xml:space="preserve">
+    <value>Background (what others see where there are no windows)</value>
+  </data>
+  <data name="Background_Black" xml:space="preserve">
+    <value>Black</value>
+  </data>
+  <data name="Background_Default" xml:space="preserve">
+    <value>Standard image</value>
+  </data>
+  <data name="Background_Custom" xml:space="preserve">
+    <value>Choose an image…</value>
+  </data>
+  <data name="Background_DialogTitle" xml:space="preserve">
+    <value>Choose a background image</value>
+  </data>
+  <data name="Background_DialogFilter" xml:space="preserve">
+    <value>Images</value>
+  </data>
+  <data name="Status_BackgroundFailed" xml:space="preserve">
+    <value>Could not load the background image: {0}</value>
+  </data>
+  <data name="Crop_Mode" xml:space="preserve">
+    <value>Crop top</value>
+  </data>
+  <data name="Crop_ModeTip" xml:space="preserve">
+    <value>When you select a window, crop its top (e.g. browser tab titles) from the start. Apps with a saved crop are cropped right away; others are adjusted before sharing. Windows already being shared are not affected.</value>
+  </data>
+  <data name="Review_Mode" xml:space="preserve">
+    <value>Confirm before sharing</value>
+  </data>
+  <data name="Review_ModeTip" xml:space="preserve">
+    <value>Selected windows are not shown until you confirm them on screen (prevents sharing the wrong window).</value>
+  </data>
+  <data name="Review_Hint" xml:space="preserve">
+    <value>Share this window? (Not visible to others yet)</value>
+  </data>
+  <data name="Review_Share" xml:space="preserve">
+    <value>Share</value>
+  </data>
+  <data name="Crop_Check" xml:space="preserve">
+    <value>Crop</value>
+  </data>
+  <data name="Crop_CheckTip" xml:space="preserve">
+    <value>Crop this window. Uncheck to share it without cropping (the saved crop is kept).</value>
+  </data>
+  <data name="Crop_SavedTip" xml:space="preserve">
+    <value>A crop is saved for this app</value>
+  </data>
+  <data name="Crop_Adjust" xml:space="preserve">
+    <value>Adjust</value>
+  </data>
+  <data name="Crop_AdjustTip" xml:space="preserve">
+    <value>Change how much of the top is hidden</value>
+  </data>
+  <data name="Crop_Confirm" xml:space="preserve">
+    <value>Apply</value>
+  </data>
+  <data name="Crop_Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="Crop_EditHint" xml:space="preserve">
+    <value>Drag the line down to hide the top. It is shared after you apply.</value>
+  </data>
+  <data name="Crop_HiddenLabel" xml:space="preserve">
+    <value>Not shared</value>
+  </data>
+  <data name="Empty_PreviewShort" xml:space="preserve">
+    <value>Nothing is visible to others yet.</value>
+  </data>
+  <data name="Empty_Shared" xml:space="preserve">
+    <value>Pick windows with "Click to select" below.</value>
+  </data>
+  <data name="Empty_Preview" xml:space="preserve">
+    <value>Nothing is shared yet. Pick windows from the list or with "Click to select".</value>
+  </data>
+</root>

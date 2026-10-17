@@ -1,0 +1,39 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <!-- リリース時は Actions がタグ（v1.2.3）から上書きする -->
+    <Version>1.0.0</Version>
+    <Product>ShareWinSelector</Product>
+    <Authors>caronyan</Authors>
+    <Copyright>Copyright (c) 2026 caronyan</Copyright>
+    <Description>Share only the windows you choose, at their real positions.</Description>
+    <!-- WPF の Fluent テーマ（ThemeMode）は試験的 API 扱い -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct2D1" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- スプラッシュは自前で出す（標準の SplashScreen ビルドアクションは最前面にならず、消える直前だけ前に出てくる） -->
+    <Resource Include="Assets\splash.png" />
+    <Resource Include="Assets\logo.png" />
+    <Resource Include="Assets\icon.png" />
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\empty-none.png" />
+    <Resource Include="Assets\empty-select.png" />
+    <Resource Include="Assets\background.jpg" />
+  </ItemGroup>
+
+</Project>

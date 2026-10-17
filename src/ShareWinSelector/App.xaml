@@ -1,0 +1,62 @@
+﻿<Application x:Class="ShareWinSelector.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml"
+             ThemeMode="Dark">
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- ブランドカラー（ロゴのシアン〜ブルー） -->
+            <Color x:Key="BrandCyanColor">#FF00D8FF</Color>
+            <Color x:Key="BrandBlueColor">#FF1E6BFF</Color>
+            <Color x:Key="BrandNavyColor">#FF0B1020</Color>
+            <Color x:Key="BrandPanelColor">#FF141A2C</Color>
+            <Color x:Key="BrandBorderColor">#FF27324D</Color>
+
+            <SolidColorBrush x:Key="BrandCyanBrush" Color="{StaticResource BrandCyanColor}"/>
+            <SolidColorBrush x:Key="BrandBlueBrush" Color="{StaticResource BrandBlueColor}"/>
+            <SolidColorBrush x:Key="BrandNavyBrush" Color="{StaticResource BrandNavyColor}"/>
+            <SolidColorBrush x:Key="BrandPanelBrush" Color="{StaticResource BrandPanelColor}"/>
+            <SolidColorBrush x:Key="BrandBorderBrush" Color="{StaticResource BrandBorderColor}"/>
+            <SolidColorBrush x:Key="BrandSubtleTextBrush" Color="#FF9AA6C2"/>
+            <LinearGradientBrush x:Key="BrandGradientBrush" StartPoint="0,0" EndPoint="1,0">
+                <GradientStop Color="{StaticResource BrandCyanColor}" Offset="0"/>
+                <GradientStop Color="{StaticResource BrandBlueColor}" Offset="1"/>
+            </LinearGradientBrush>
+            <LinearGradientBrush x:Key="BrandWindowBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#FF101731" Offset="0"/>
+                <GradientStop Color="{StaticResource BrandNavyColor}" Offset="0.35"/>
+            </LinearGradientBrush>
+
+            <!-- Fluent テーマのアクセント色をブランド色に寄せる -->
+            <Color x:Key="SystemAccentColor">#FF1E9BFF</Color>
+            <Color x:Key="SystemAccentColorLight1">#FF33C2FF</Color>
+            <Color x:Key="SystemAccentColorLight2">#FF00D8FF</Color>
+            <Color x:Key="SystemAccentColorLight3">#FF7FE9FF</Color>
+            <Color x:Key="SystemAccentColorDark1">#FF1E6BFF</Color>
+            <Color x:Key="SystemAccentColorDark2">#FF1650C4</Color>
+            <Color x:Key="SystemAccentColorDark3">#FF0F3A8F</Color>
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#FF00D8FF"/>
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E600D8FF"/>
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#CC00D8FF"/>
+            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#FF7FE9FF"/>
+            <SolidColorBrush x:Key="TextOnAccentFillColorPrimaryBrush" Color="#FF001421"/>
+
+            <!-- 見出し -->
+            <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{StaticResource BrandSubtleTextBrush}"/>
+                <Setter Property="Margin" Value="0,0,0,8"/>
+            </Style>
+
+            <!-- カード（パネル） -->
+            <Style x:Key="CardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{StaticResource BrandPanelBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource BrandBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="10"/>
+                <Setter Property="Padding" Value="12"/>
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

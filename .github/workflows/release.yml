@@ -1,0 +1,56 @@
+# v1.2.3 のようなタグを push すると、2 種類の exe をビルドして GitHub Releases に公開する。
+# リリースノートは注釈付きタグのメッセージ（git tag -a v1.2.3 -m "..."）を使う。
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # タグのメッセージをリリースノートに使うため、タグの情報も取る
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          "version=$($tag.TrimStart('v'))" >> $env:GITHUB_OUTPUT
+
+      - name: Publish (framework-dependent, single file)
+        run: dotnet publish src/ShareWinSelector -p:PublishProfile=FrameworkDependent -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Publish (self-contained, single file)
+        run: dotnet publish src/ShareWinSelector -p:PublishProfile=SelfContained -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Collect assets and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item src/ShareWinSelector/bin/publish/framework-dependent/ShareWinSelector.exe dist/ShareWinSelector.exe
+          Copy-Item src/ShareWinSelector/bin/publish/self-contained/ShareWinSelector.exe dist/ShareWinSelector-SelfContained.exe
+          Get-ChildItem dist -Filter *.exe | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+          } | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' dist/ShareWinSelector.exe dist/ShareWinSelector-SelfContained.exe dist/SHA256SUMS.txt `
+            --title "ShareWinSelector ${{ github.ref_name }}" `
+            --notes-from-tag

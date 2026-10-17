@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Monitor_Label" xml:space="preserve">
+    <value>共有するモニター</value>
+  </data>
+  <data name="Monitor_Primary" xml:space="preserve">
+    <value>(メイン)</value>
+  </data>
+  <data name="Language_Label" xml:space="preserve">
+    <value>言語 (Language)</value>
+  </data>
+  <data name="Language_Auto" xml:space="preserve">
+    <value>自動（OS に合わせる）</value>
+  </data>
+  <data name="Windows_Header" xml:space="preserve">
+    <value>共有するウィンドウ（チェックしたものだけ相手に見える）</value>
+  </data>
+  <data name="Refresh" xml:space="preserve">
+    <value>一覧を更新</value>
+  </data>
+  <data name="UncheckAll" xml:space="preserve">
+    <value>全部外す</value>
+  </data>
+  <data name="Placement_Header" xml:space="preserve">
+    <value>出力ウィンドウの配置</value>
+  </data>
+  <data name="Placement_Back" xml:space="preserve">
+    <value>最背面</value>
+  </data>
+  <data name="Placement_Normal" xml:space="preserve">
+    <value>通常（前に出す）</value>
+  </data>
+  <data name="Placement_OffScreen" xml:space="preserve">
+    <value>画面外</value>
+  </data>
+  <data name="Placement_OffScreenNote" xml:space="preserve">
+    <value>（Zoom 非対応）</value>
+  </data>
+  <data name="Option_Overlay" xml:space="preserve">
+    <value>自分の画面に強調枠・ツールバーを表示（相手には映らない）</value>
+  </data>
+  <data name="Option_Cursor" xml:space="preserve">
+    <value>マウスカーソルも映す</value>
+  </data>
+  <data name="Option_Popups" xml:space="preserve">
+    <value>選んだアプリの右クリックメニュー・ダイアログ等も映す</value>
+  </data>
+  <data name="Status_NotSupported" xml:space="preserve">
+    <value>この環境は Windows.Graphics.Capture に対応していません。</value>
+  </data>
+  <data name="Status_Recovering" xml:space="preserve">
+    <value>GPU がリセットされたため復旧しています…</value>
+  </data>
+  <data name="Status_ElevatedWindow" xml:space="preserve">
+    <value>「{0}」は管理者権限で動いているため共有できません。本アプリを管理者として起動してください。</value>
+  </data>
+  <data name="Status_CaptureFailed" xml:space="preserve">
+    <value>キャプチャ開始に失敗: {0} ({1})</value>
+  </data>
+  <data name="Status_NoneShared" xml:space="preserve">
+    <value>共有中のウィンドウはありません。</value>
+  </data>
+  <data name="Status_Sharing" xml:space="preserve">
+    <value>{0} 個のウィンドウを共有中。</value>
+  </data>
+  <data name="Status_Pending" xml:space="preserve">
+    <value>（確認待ち {0} 個）</value>
+  </data>
+  <data name="Status_ShareHint" xml:space="preserve">
+    <value>Teams では「{0}」をウィンドウ共有してください。</value>
+  </data>
+  <data name="Output_Title" xml:space="preserve">
+    <value>ShareWinSelector - 共有用出力</value>
+  </data>
+  <data name="Overlay_SharedTag" xml:space="preserve">
+    <value>共有中</value>
+  </data>
+  <data name="Overlay_ClickToAdd" xml:space="preserve">
+    <value>クリックで共有に追加</value>
+  </data>
+  <data name="Overlay_ClickToRemove" xml:space="preserve">
+    <value>クリックで共有から外す</value>
+  </data>
+  <data name="Toolbar_DragTip" xml:space="preserve">
+    <value>ドラッグで移動</value>
+  </data>
+  <data name="Toolbar_Select" xml:space="preserve">
+    <value>クリックで選択</value>
+  </data>
+  <data name="Toolbar_SelectTip" xml:space="preserve">
+    <value>画面上のウィンドウをクリックして共有に追加・解除（Esc / 右クリックで終了）</value>
+  </data>
+  <data name="Toolbar_Border" xml:space="preserve">
+    <value>枠</value>
+  </data>
+  <data name="Toolbar_BorderTip" xml:space="preserve">
+    <value>強調枠の表示切り替え</value>
+  </data>
+  <data name="Toolbar_Settings" xml:space="preserve">
+    <value>設定</value>
+  </data>
+  <data name="Toolbar_SettingsTip" xml:space="preserve">
+    <value>メイン画面を開く</value>
+  </data>
+  <data name="Toolbar_NoneShared" xml:space="preserve">
+    <value>共有なし</value>
+  </data>
+  <data name="Toolbar_Sharing" xml:space="preserve">
+    <value>● {0} 個共有中</value>
+  </data>
+  <data name="Header_PinTip" xml:space="preserve">
+    <value>常に手前に表示</value>
+  </data>
+  <data name="Header_CompactTip" xml:space="preserve">
+    <value>コンパクト表示</value>
+  </data>
+  <data name="Header_ExpandTip" xml:space="preserve">
+    <value>通常表示に戻す</value>
+  </data>
+  <data name="Row_BringToFrontTip" xml:space="preserve">
+    <value>このウィンドウを最前面に出す</value>
+  </data>
+  <data name="View_MonitorOnlyTip" xml:space="preserve">
+    <value>共有するモニター上のウィンドウだけ表示</value>
+  </data>
+  <data name="View_ListTip" xml:space="preserve">
+    <value>一覧</value>
+  </data>
+  <data name="View_ThumbnailsTip" xml:space="preserve">
+    <value>サムネイル</value>
+  </data>
+  <data name="Preview_Header" xml:space="preserve">
+    <value>相手からの見え方</value>
+  </data>
+  <data name="Settings_Header" xml:space="preserve">
+    <value>設定</value>
+  </data>
+  <data name="Shared_Header" xml:space="preserve">
+    <value>共有中のウィンドウ</value>
+  </data>
+  <data name="Chip_RemoveTip" xml:space="preserve">
+    <value>共有から外す</value>
+  </data>
+  <data name="Background_Label" xml:space="preserve">
+    <value>背景（ウィンドウが無い部分に相手から見えるもの）</value>
+  </data>
+  <data name="Background_Black" xml:space="preserve">
+    <value>黒</value>
+  </data>
+  <data name="Background_Default" xml:space="preserve">
+    <value>標準の画像</value>
+  </data>
+  <data name="Background_Custom" xml:space="preserve">
+    <value>好きな画像を選ぶ…</value>
+  </data>
+  <data name="Background_DialogTitle" xml:space="preserve">
+    <value>背景画像を選ぶ</value>
+  </data>
+  <data name="Background_DialogFilter" xml:space="preserve">
+    <value>画像</value>
+  </data>
+  <data name="Status_BackgroundFailed" xml:space="preserve">
+    <value>背景画像を読み込めませんでした: {0}</value>
+  </data>
+  <data name="Crop_Mode" xml:space="preserve">
+    <value>上をクロップ</value>
+  </data>
+  <data name="Crop_ModeTip" xml:space="preserve">
+    <value>ウィンドウを選んだときに、最初から上側（ブラウザのタブ名など）をクロップします。保存済みのアプリはすぐ、未保存なら調整してから共有します。共有中のウィンドウには影響しません。</value>
+  </data>
+  <data name="Review_Mode" xml:space="preserve">
+    <value>共有前に確認</value>
+  </data>
+  <data name="Review_ModeTip" xml:space="preserve">
+    <value>選んだウィンドウをすぐには見せず、画面上で確認してから共有します（違うウィンドウを映す事故の防止）。</value>
+  </data>
+  <data name="Review_Hint" xml:space="preserve">
+    <value>このウィンドウを共有しますか？（まだ相手には見えていません）</value>
+  </data>
+  <data name="Review_Share" xml:space="preserve">
+    <value>共有する</value>
+  </data>
+  <data name="Crop_Check" xml:space="preserve">
+    <value>クロップ</value>
+  </data>
+  <data name="Crop_CheckTip" xml:space="preserve">
+    <value>このウィンドウをクロップして共有します。外すとクロップなしで共有します（保存した値は消えません）。</value>
+  </data>
+  <data name="Crop_SavedTip" xml:space="preserve">
+    <value>このアプリのクロップは保存済み</value>
+  </data>
+  <data name="Crop_Adjust" xml:space="preserve">
+    <value>調整</value>
+  </data>
+  <data name="Crop_AdjustTip" xml:space="preserve">
+    <value>隠す範囲を調整する</value>
+  </data>
+  <data name="Crop_Confirm" xml:space="preserve">
+    <value>確定</value>
+  </data>
+  <data name="Crop_Cancel" xml:space="preserve">
+    <value>キャンセル</value>
+  </data>
+  <data name="Crop_EditHint" xml:space="preserve">
+    <value>線を下へドラッグして隠す範囲を決めてください。確定するまで相手には見せません</value>
+  </data>
+  <data name="Crop_HiddenLabel" xml:space="preserve">
+    <value>共有しない範囲</value>
+  </data>
+  <data name="Empty_PreviewShort" xml:space="preserve">
+    <value>相手にはまだ何も映っていません。</value>
+  </data>
+  <data name="Empty_Shared" xml:space="preserve">
+    <value>下の「クリックで選択」でウィンドウを選べます。</value>
+  </data>
+  <data name="Empty_Preview" xml:space="preserve">
+    <value>まだ何も共有していません。一覧か「クリックで選択」でウィンドウを選んでください。</value>
+  </data>
+</root>
