@@ -238,6 +238,11 @@ internal static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
 
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromRect(ref RECT rect, uint flags);
+
     /// <summary>DWM が描画している実際のウィンドウ矩形（影などの不可視枠を除く、物理ピクセル）。</summary>
     public static bool TryGetFrameBounds(IntPtr hWnd, out RECT rect) =>
         DwmGetWindowAttribute(hWnd, DWMWA_EXTENDED_FRAME_BOUNDS, out rect, Marshal.SizeOf<RECT>()) == 0;

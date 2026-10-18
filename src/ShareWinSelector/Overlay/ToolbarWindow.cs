@@ -284,7 +284,30 @@ internal sealed class ToolbarWindow : Window
                 ? new CubicEase { EasingMode = EasingMode.EaseIn }
                 : new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 },
         };
+        if (collapsed) animation.Completed += (_, _) => { if (_collapsed) BringCollapsedOnScreen(); };
         BeginAnimation(ProgressProperty, animation);
+    }
+
+    /// <summary>
+    /// たたんだ形（アイコン＋共有数）が画面の外に出ていたら、いまいるモニターの内側へ寄せる。
+    /// 広げたまま右端などに置くと、たたんだときにアイコンが共有数の側へ寄って外に出てしまい、つかめなくなるため。
+    /// 広がっているときのはみ出しはそのまま（ユーザーが置いた位置なので）。
+    /// </summary>
+    private void BringCollapsedOnScreen()
+    {
+        if (_hwnd == IntPtr.Zero || _dragging) return;
+        UpdateLayout();
+        var tl = _shell.PointToScreen(new Point(0, 0));
+        var br = _shell.PointToScreen(new Point(_shell.ActualWidth, _shell.ActualHeight));
+        var shell = new Native.RECT { Left = (int)tl.X, Top = (int)tl.Y, Right = (int)Math.Ceiling(br.X), Bottom = (int)Math.Ceiling(br.Y) };
+        var info = new Native.MONITORINFOEX { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<Native.MONITORINFOEX>() };
+        if (!Native.GetMonitorInfo(Native.MonitorFromRect(ref shell, Native.MONITOR_DEFAULTTONEAREST), ref info)) return;
+        var area = info.rcWork; // タスクバーの下にも潜らせない
+        int dx = shell.Left < area.Left ? area.Left - shell.Left : shell.Right > area.Right ? area.Right - shell.Right : 0;
+        int dy = shell.Top < area.Top ? area.Top - shell.Top : shell.Bottom > area.Bottom ? area.Bottom - shell.Bottom : 0;
+        if (dx == 0 && dy == 0) return;
+        Native.GetWindowRect(_hwnd, out var rc);
+        Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, rc.Left + dx, rc.Top + dy, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
     }
 
     private bool _allowClose;
