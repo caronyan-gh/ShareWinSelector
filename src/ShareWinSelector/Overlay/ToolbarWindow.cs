@@ -304,9 +304,23 @@ internal sealed class ToolbarWindow : Window
 
     public void SetMonitor(Native.RECT monitor)
     {
+        var old = _monitor;
         _monitor = monitor;
-        _positioned = false;
-        PlaceAtTop();
+        if (_hwnd == IntPtr.Zero) return;
+        if (!_positioned) { PlaceAtTop(); return; }
+        // 同じモニターの選び直し（言語の切り替えなど）なら動かさない
+        if (old.Left == monitor.Left && old.Top == monitor.Top && old.Width == monitor.Width && old.Height == monitor.Height) return;
+
+        // ドラッグした位置は、前のモニターでの位置関係（空きに対する割合）のまま新しいモニターへ。
+        // 割合は 0〜1 に収めるので、はみ出さない（中央なら中央、右上の隅なら右上の隅）
+        Native.GetWindowRect(_hwnd, out var rc);
+        int w = rc.Right - rc.Left, h = rc.Bottom - rc.Top;
+        static double Ratio(int pos, int start, int free) => free > 0 ? Math.Clamp((double)(pos - start) / free, 0, 1) : 0.5;
+        double fx = Ratio(rc.Left, old.Left, old.Width - w);
+        double fy = Ratio(rc.Top, old.Top, old.Height - h);
+        int x = monitor.Left + (int)Math.Round(fx * Math.Max(0, monitor.Width - w));
+        int y = monitor.Top + (int)Math.Round(fy * Math.Max(0, monitor.Height - h));
+        Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
     }
 
     /// <summary>モニター上端の中央に置く（ユーザーがドラッグした後は動かさない）。</summary>
