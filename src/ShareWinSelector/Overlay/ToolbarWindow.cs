@@ -19,7 +19,7 @@ internal sealed class ToolbarWindow : Window
     // アニメーションのはみ出し（広がるときに少し行き過ぎて戻る）用の左右の余白。透明なのでクリックは下へ抜ける
     private const double Slack = 16;
 
-    private static readonly TimeSpan CollapseDelay = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan CollapseDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ExpandDelay = TimeSpan.FromMilliseconds(350);
     private static readonly Duration ExpandDuration = new(TimeSpan.FromMilliseconds(240));
     private static readonly Duration CollapseDuration = new(TimeSpan.FromMilliseconds(180));
