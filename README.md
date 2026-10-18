@@ -15,6 +15,11 @@
   <img src="docs/demo.gif" alt="Left: your screen, with the picked windows outlined. Right: what others see — only the picked windows, at their real positions. The chat and the notification never appear on the right." width="100%">
 </p>
 
+<p align="center">
+  <a href="https://github.com/caronyan-gh/ShareWinSelector/releases/latest"><b>⬇ Download the latest version</b></a><br>
+  Not sure which file? Get <code>ShareWinSelector-SelfContained.exe</code> under “Assets” — it runs as is.
+</p>
+
 ---
 
 Screen sharing in online meetings such as Teams usually gives you two choices: share **one window**, or share **the whole screen**.

@@ -15,6 +15,11 @@
   <img src="docs/demo.gif" alt="左は自分の画面（選んだウィンドウに枠が付く）。右は相手に見える画面で、選んだウィンドウだけが実際の位置のまま映る。チャットや通知は右には出ない。" width="100%">
 </p>
 
+<p align="center">
+  <a href="https://github.com/caronyan-gh/ShareWinSelector/releases/latest"><b>⬇ 最新版をダウンロード</b></a><br>
+  迷ったら、開いた先の「Assets」にある <code>ShareWinSelector-SelfContained.exe</code> を。そのまま動きます。
+</p>
+
 ---
 
 Teams など、オンライン会議の画面共有は、たいてい「**ウィンドウ 1 つ**」か「**画面全体**」の二択です。
