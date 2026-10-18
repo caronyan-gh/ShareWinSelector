@@ -34,6 +34,9 @@ internal sealed class AppSettings
     public bool CaptureCursor { get; set; } = true;
     public bool IncludePopups { get; set; } = true;
 
+    /// <summary>ボタンなどにカーソルを乗せたときの説明（ツールチップ）を出す。出すときはすぐ出す。</summary>
+    public bool ShowTooltips { get; set; } = true;
+
     /// <summary>相手に見える画面の、ウィンドウが無い部分の背景（"Solid" / "Default" / "Custom"）。</summary>
     public string Background { get; set; } = "Default";
 

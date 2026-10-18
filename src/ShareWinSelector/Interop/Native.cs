@@ -63,6 +63,41 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetCapture(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
+    /// <summary>
+    /// ほかのアプリのウィンドウでも確実に手前に出して選択状態にする。
+    /// Windows は「今の前面のアプリ」以外からの前面化を止めるので、前面のアプリの入力に一時的に相乗りしてから出す。
+    /// </summary>
+    public static void ForceToForeground(IntPtr hWnd)
+    {
+        uint me = GetCurrentThreadId();
+        uint front = GetWindowThreadProcessId(GetForegroundWindow(), out _);
+        bool attached = front != 0 && front != me && AttachThreadInput(me, front, true);
+        try
+        {
+            SetWindowPos(hWnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            SetForegroundWindow(hWnd);
+        }
+        finally
+        {
+            if (attached) AttachThreadInput(me, front, false);
+        }
+    }
+
     public const int SW_RESTORE = 9;
 
     [DllImport("user32.dll")]

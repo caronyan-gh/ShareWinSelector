@@ -26,6 +26,7 @@ public partial class MainWindow
         OverlayCheck.IsChecked = s.ShowOverlay;
         CursorCheck.IsChecked = s.CaptureCursor;
         PopupCheck.IsChecked = s.IncludePopups;
+        TooltipCheck.IsChecked = s.ShowTooltips;
         (s.Placement switch
         {
             "Normal" => PlacementNormal,
@@ -33,12 +34,14 @@ public partial class MainWindow
             _ => PlacementBack,
         }).IsChecked = true;
         PinButton.IsChecked = s.Topmost;
-        Topmost = s.Topmost;
+        // スプラッシュも最前面なので、消えるまではピン止めしていても普通の重なりで出す（スプラッシュより前に出ないように）
+        Topmost = false;
         SetThumbnailView(s.ThumbnailView);
         MonitorOnlyButton.IsChecked = s.MonitorOnly;
-        CropModeCheck.IsChecked = s.CropMode;
+        CropModeCheck.IsChecked = CompactCropModeCheck.IsChecked = s.CropMode;
         ConfirmCheck.IsChecked = s.ConfirmBeforeShare;
         _applyingSettings = false;
+        ShowVersion();
 
         // 共有中のウィンドウだけを並べるチップ（チェックが変わると自動で出入りする）
         var shared = new ListCollectionView(_items) { Filter = o => ((WindowItem)o).IsChecked, IsLiveFiltering = true };
@@ -71,19 +74,41 @@ public partial class MainWindow
         s.ShowOverlay = OverlayCheck.IsChecked == true;
         s.CaptureCursor = CursorCheck.IsChecked == true;
         s.IncludePopups = PopupCheck.IsChecked == true;
+        s.ShowTooltips = TooltipCheck.IsChecked == true;
         s.Placement = PlacementNormal.IsChecked == true ? "Normal" : PlacementOffScreen.IsChecked == true ? "OffScreen" : "Back";
         s.Save();
     }
+
+    private void TooltipCheck_Changed(object sender, RoutedEventArgs e) => SaveOptions();
 
     // --- 常に手前 ---
 
     private void PinButton_Changed(object sender, RoutedEventArgs e)
     {
-        Topmost = PinButton.IsChecked == true || _overlay?.RaiseMainInSelectMode == true;
-        PinButton.Content = Topmost ? "" : ""; // 今の状態を出す: ピン留め中 / ピン留めなし（斜線）
+        bool pinned = PinButton.IsChecked == true;
+        // スプラッシュが消えるまでは最前面にしない（スプラッシュより前に出ないように）
+        if (_splashGone) Topmost = pinned || _overlay?.RaiseMainInSelectMode == true;
+        PinButton.Content = pinned ? "" : ""; // 今の状態を出す: ピン留め中 / ピン留めなし（斜線）
         if (_applyingSettings) return;
-        App.Settings.Topmost = Topmost;
+        App.Settings.Topmost = pinned;
         App.Settings.Save();
+    }
+
+    // スプラッシュが消えたか（それまでは最前面にしない）
+    private bool _splashGone;
+
+    /// <summary>スプラッシュを閉じる。消え終わってから、ピン止めの設定どおり最前面にする。</summary>
+    private void CloseSplashAndApplyPin()
+    {
+        App.CloseSplash();
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            _splashGone = true;
+            Topmost = PinButton.IsChecked == true || _overlay?.RaiseMainInSelectMode == true;
+        };
+        timer.Start();
     }
 
     // --- コンパクト ⇔ 通常 ---
@@ -105,6 +130,7 @@ public partial class MainWindow
         NormalView.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
         CompactView.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
         LogoImage.Height = compact ? 26 : 44;
+        VersionText.FontSize = compact ? 10 : 11;
         ModeButton.Content = compact ? "" : ""; // 全画面 / ウィンドウに戻す
         ModeButton.SetBinding(ToolTipProperty, new Binding(compact ? "[Header_ExpandTip]" : "[Header_CompactTip]") { Source = Loc.Instance });
 
@@ -192,6 +218,59 @@ public partial class MainWindow
         // 最小化していたら元に戻してから前に出す
         if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, Native.SW_RESTORE);
         Native.SetForegroundWindow(hwnd);
+    }
+
+    private void BringAllToFront_Click(object sender, RoutedEventArgs e) => BringSharedToFront();
+
+    /// <summary>
+    /// 共有中のウィンドウを、お互いの重なり順はそのままで、まとめて一番手前に出す（最小化しているものはそのまま）。
+    /// 相手に見えない所でメールを見たあと、共有している画面の状態に戻す用。
+    /// </summary>
+    private void BringSharedToFront()
+    {
+        var shared = _selected.Values
+            .Where(id => id.IsAlive() && !IsWaitingForReview(id.Handle) && !Native.IsIconic(id.Handle))
+            .Select(id => id.Handle).ToHashSet();
+        if (shared.Count == 0) return;
+        // 今の重なり順（手前 → 奥）で並べ、奥のものから順に一番手前へ出す＝最後に元の一番手前が一番上
+        var order = WindowEnumerator.GetVisibleWindowsTopDown().Select(w => w.Handle).Where(shared.Contains).ToList();
+        if (order.Count == 0) return;
+        order.Reverse();
+        // 1 つずつ前面に出す（重なり順を変えるだけだと、ほかのアプリのウィンドウは前に来ないことがある）
+        foreach (var hwnd in order) Native.ForceToForeground(hwnd);
+    }
+
+    // --- デスクトップ ---
+
+    /// <summary>
+    /// デスクトップのフォルダをエクスプローラーで開く。出力ウィンドウを最背面で最大化しているとデスクトップのアイコンに触れないので、
+    /// その代わりに（右クリックやドラッグもエクスプローラーの本物がそのまま使える）。
+    /// </summary>
+    private void Desktop_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "shell:Desktop") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("デスクトップを開けませんでした", ex);
+        }
+    }
+
+    // --- バージョン ---
+
+    /// <summary>このアプリの版（"1.2.0+コミット"）。</summary>
+    internal static string FullVersion { get; } =
+        System.Reflection.Assembly.GetExecutingAssembly()
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "?";
+
+    private void ShowVersion()
+    {
+        // ロゴの横には「v1.2.0」だけ、カーソルを乗せるとコミットまで
+        VersionText.Text = "v" + FullVersion.Split('+')[0];
+        VersionText.ToolTip = FullVersion;
     }
 
     // --- 共有するモニターのウィンドウだけ表示 ---

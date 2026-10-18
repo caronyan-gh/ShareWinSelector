@@ -31,9 +31,11 @@ and keep working with your apps exactly as usual.
 - **Keep working as usual** — no virtual camera, no special mode. You operate the original windows directly.
 - **Notifications and chats never show up** unless you picked them. Windows you did not pick do not leak into the share, even when they overlap.
 - **Menus and dialogs of the picked apps are included** — context menus, owned dialogs and tooltips appear automatically.
+- **Switch monitors without re-sharing** — change "Monitor to share" and others see the new monitor right away; no need to stop and re-share in your meeting app.
+- **Bring all to front / Uncheck all** — raise every shared window at once, keeping their order. After unchecking all, **Undo** re-shares them (with their crop) for a few seconds.
 - **Crop the top** — hide browser tab titles and the address bar. The crop is saved per app (PWAs are told apart from the browser).
 - **Confirm before sharing** — a picked window is not shown until you confirm it on screen. No more sharing the wrong window by accident.
-- **Overlay only you can see** — highlight borders around shared windows, a floating toolbar and a *click to select* mode, all excluded from capture.
+- **Overlay only you can see** — highlight borders around shared windows, a floating toolbar and a *click to select* mode, all excluded from capture. The toolbar folds itself after a while and unfolds when you hover over "Sharing n".
 - **Live preview** of what others see, thumbnail or list view, compact mode, always on top.
 - **Background** for the empty area: a solid color of your choice (drag to pick), the standard wallpaper, or your own image.
 - **Robust** — survives GPU resets, display changes, closed windows and reused window handles.
@@ -75,12 +77,15 @@ Click **More info** → **Run anyway**. Release builds are made by [GitHub Actio
   - Teams keeps sharing it while it is off-screen.
   - **Zoom pauses the share while the window is off-screen** (it resumes when the window is back on screen). This is how Zoom works, so use *Behind all windows* or *Normal* with Zoom.
   - Other apps (Google Meet, Webex, Discord, etc.) have not been tested. If the share pauses or shows nothing, switch to *Behind all windows* or *Normal* in the same way.
+- **Right-click** the output window to pick full screen (borderless), 75% / 50% / 33% of the monitor, or common sizes such as 1920 × 1080 (except when off-screen).
+- If the output window hides your desktop icons, the **desktop** button at the top of the main window opens the desktop folder in Explorer.
 
 **Crop the top** (e.g. hide browser tabs)
 
 - Turn on **Crop top** above the list to crop windows when you pick them, or check **Crop** on a single window.
 - If the app has no saved crop yet, the window stays hidden while you drag its top edge down on the overlay. Press **Apply** (Enter) to start sharing it.
-- The crop amount is saved per app, and whether each app is cropped is remembered across restarts.
+- **Ctrl+click** a window during *Click to select* to adjust its top edge before sharing it. On a window that is already shared, it lets you redo the crop.
+- The crop amount is saved per app, and whether each app is cropped is remembered across restarts. **Crop** on a row is greyed out until the app has a saved crop.
 
 **Confirm before sharing**
 

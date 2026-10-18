@@ -23,6 +23,11 @@ internal sealed class OutputWindow : Window
     private const int WM_NCHITTEST = 0x0084;
     private const int WM_GETMINMAXINFO = 0x0024;
     private const int WM_EXITSIZEMOVE = 0x0232;
+    private const int WM_NCRBUTTONUP = 0x00A5;
+    private const int WM_RBUTTONUP = 0x0205;
+    private const int WM_LBUTTONDOWN = 0x0201, WM_LBUTTONUP = 0x0202, WM_LBUTTONDBLCLK = 0x0203, WM_MOUSEMOVE = 0x0200;
+    private const int WM_CAPTURECHANGED = 0x0215;
+    private const int HTCLIENT = 1;
     private const int HTCAPTION = 2, HTLEFT = 10, HTRIGHT = 11, HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14,
         HTBOTTOM = 15, HTBOTTOMLEFT = 16, HTBOTTOMRIGHT = 17;
     // 端のこの幅（物理ピクセル）だけはサイズ変更に使う
@@ -102,7 +107,7 @@ internal sealed class OutputWindow : Window
         if (_placement == OutputPlacement.OffScreen)
         {
             return new OutputWindowState(_onScreenPosition.X, _onScreenPosition.Y,
-                _restoreClientWidth > 0 ? _restoreClientWidth : _initialClientWidth, false);
+                _restoreClientWidth > 0 ? _restoreClientWidth : _initialClientWidth, _pendingMaximize);
         }
         if (WindowState == WindowState.Maximized)
         {
@@ -166,7 +171,8 @@ internal sealed class OutputWindow : Window
             (_, true, _, _) => HTBOTTOM,
             (_, _, true, _) => HTLEFT,
             (_, _, _, true) => HTRIGHT,
-            _ => HTCAPTION,
+            // 中はクライアント扱いにして、移動は自前で（画面の上へも出せるように）
+            _ => HTCLIENT,
         };
     }
 
@@ -224,8 +230,13 @@ internal sealed class OutputWindow : Window
 
         if (_placement == OutputPlacement.OffScreen)
         {
-            // 最大化は画面外に置けないので、枠なしのまま解像度ぴったりの大きさにする
-            if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal;
+            // 最大化は画面外に置けないので、枠なしのまま解像度ぴったりの大きさにする。
+            // 画面内に戻したときに最大化し直せるよう、最大化していたことは覚えておく
+            if (WindowState == WindowState.Maximized)
+            {
+                _pendingMaximize = true;
+                WindowState = WindowState.Normal;
+            }
             if (_restoreClientWidth == 0)
             {
                 Native.GetClientRect(_hwnd, out var cr);
@@ -298,17 +309,172 @@ internal sealed class OutputWindow : Window
             Dispatcher.BeginInvoke(() => WindowState = WindowState.Normal);
     }
 
+    // 右クリックで選べる大きさ: いるモニターに対する割合と、よくある横幅（高さは縦横比に合わせる）
+    private static readonly double[] SizePresets = [0.75, 0.5, 0.33];
+    private static readonly int[] CommonWidths = [2560, 1920, 1600, 1366, 1280];
+
+    /// <summary>
+    /// 右クリックのメニュー: 全画面（枠なし）か、それっぽい大きさにする。どれも今いるモニターの真ん中に出す。
+    /// 最背面のときも使える（終わったら最背面に戻す）。
+    /// </summary>
+    private void ShowSizeMenu()
+    {
+        if (_placement == OutputPlacement.OffScreen || !TryGetMonitorRect(out var m)) return;
+        // 右クリックした所に出す（枠の外扱いのクリックなので、WPF のマウス位置は当てにならない＝実際のカーソル位置を使う）
+        Native.GetCursorPos(out var cursor);
+        var at = PointFromScreen(new Point(cursor.X, cursor.Y));
+        var menu = new System.Windows.Controls.ContextMenu
+        {
+            PlacementTarget = this,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Relative,
+            HorizontalOffset = at.X,
+            VerticalOffset = at.Y,
+        };
+
+        var full = new System.Windows.Controls.MenuItem { Header = Loc.T("Output_Fullscreen") };
+        full.Click += (_, _) =>
+        {
+            WindowState = WindowState.Maximized;
+            AfterSizeMenu();
+        };
+        menu.Items.Add(full);
+        menu.Items.Add(new System.Windows.Controls.Separator());
+        foreach (double f in SizePresets)
+        {
+            // 中身の縦横比（共有するモニター）を保ったまま、いるモニターに収まる大きさ
+            int w = (int)Math.Round(Math.Min(f * m.Width, f * m.Height * _aspect));
+            menu.Items.Add(SizeItem(Loc.F("Output_SizeFormat", (int)Math.Round(f * 100), w, (int)Math.Round(w / _aspect)), w, m));
+        }
+        // よくある大きさ（いるモニターに収まるものだけ）
+        var common = CommonWidths.Where(w => w <= m.Width && Math.Round(w / _aspect) <= m.Height).ToList();
+        if (common.Count > 0) menu.Items.Add(new System.Windows.Controls.Separator());
+        foreach (int w in common)
+            menu.Items.Add(SizeItem($"{w} × {(int)Math.Round(w / _aspect)}", w, m));
+        menu.Closed += (_, _) => KeepAtBackIfNeeded();
+        menu.IsOpen = true;
+    }
+
+    /// <summary>メニューの 1 項目: 中身をその横幅にして、いるモニターの真ん中に出す。</summary>
+    private System.Windows.Controls.MenuItem SizeItem(string header, int clientWidth, Native.RECT monitor)
+    {
+        var item = new System.Windows.Controls.MenuItem { Header = header };
+        item.Click += (_, _) =>
+        {
+            if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal;
+            SetClientSize(clientWidth);
+            if (Native.GetWindowRect(_hwnd, out var r))
+                Native.SetWindowPos(_hwnd, IntPtr.Zero, monitor.Left + (monitor.Width - r.Width) / 2, monitor.Top + (monitor.Height - r.Height) / 2, 0, 0,
+                    Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            AfterSizeMenu();
+        };
+        return item;
+    }
+
+    private void AfterSizeMenu()
+    {
+        KeepAtBackIfNeeded();
+        LayoutChangedByUser?.Invoke();
+    }
+
+    /// <summary>最背面のときは、クリックやメニューで手前に出てしまっても最背面に戻す。</summary>
+    private void KeepAtBackIfNeeded()
+    {
+        if (_placement == OutputPlacement.Back)
+            Native.SetWindowPos(_hwnd, Native.HWND_BOTTOM, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+    }
+
+    /// <summary>このウィンドウがいるモニターの範囲（物理ピクセル）。</summary>
+    private bool TryGetMonitorRect(out Native.RECT rect)
+    {
+        const uint MONITOR_DEFAULTTONEAREST = 2;
+        var info = new Native.MONITORINFOEX { cbSize = Marshal.SizeOf<Native.MONITORINFOEX>() };
+        bool ok = Native.GetMonitorInfo(MonitorFromWindow(_hwnd, MONITOR_DEFAULTTONEAREST), ref info);
+        rect = info.rcMonitor;
+        return ok;
+    }
+
+    // 自前で動かしている最中か、と「つかんだ点からウィンドウの左上までの距離」
+    private bool _moving;
+    private int _grabX, _grabY;
+    // ダブルクリックの見分け用（前回押した時刻と場所）
+    private long _lastDownTick;
+    private int _lastDownX, _lastDownY;
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
+
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == WM_EXITSIZEMOVE)
         {
             LayoutChangedByUser?.Invoke();
         }
+        if (msg is WM_NCRBUTTONUP or WM_RBUTTONUP)
+        {
+            // 右クリックは Windows の小さなメニューの代わりに、大きさのメニューを出す
+            handled = true;
+            ShowSizeMenu();
+            return IntPtr.Zero;
+        }
         if (msg == WM_NCHITTEST)
         {
-            // 端はサイズ変更、それ以外はどこでもタイトルバー扱い（つかんで移動・ダブルクリックで最大化/戻す）
+            // 端はサイズ変更。中は、最大化中はタイトルバー扱い（引っ張ると元の大きさに戻る Windows の動き）、
+            // それ以外は自前で動かす（タイトルバー扱いだと、Windows が画面の上へは出させてくれないので）
             handled = true;
             return new IntPtr(HitTest(lParam));
+        }
+        if (msg == WM_LBUTTONDOWN && WindowState == WindowState.Normal)
+        {
+            Native.GetCursorPos(out var p);
+            // 素早い 2 回目のクリック（ほぼ同じ場所）はダブルクリック扱いで最大化
+            long now = Environment.TickCount64;
+            if (now - _lastDownTick <= GetDoubleClickTime() && Math.Abs(p.X - _lastDownX) <= 4 && Math.Abs(p.Y - _lastDownY) <= 4)
+            {
+                _lastDownTick = 0;
+                WindowState = WindowState.Maximized;
+                KeepAtBackIfNeeded();
+                handled = true;
+                return IntPtr.Zero;
+            }
+            (_lastDownTick, _lastDownX, _lastDownY) = (now, p.X, p.Y);
+            Native.GetWindowRect(_hwnd, out var r);
+            (_grabX, _grabY) = (p.X - r.Left, p.Y - r.Top);
+            _moving = true;
+            Native.SetCapture(_hwnd);
+            handled = true;
+            return IntPtr.Zero;
+        }
+        if (msg == WM_MOUSEMOVE && _moving)
+        {
+            // 上下左右どこへでも（画面の外へも）動かせる
+            Native.GetCursorPos(out var p);
+            Native.SetWindowPos(_hwnd, IntPtr.Zero, p.X - _grabX, p.Y - _grabY, 0, 0,
+                Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            handled = true;
+            return IntPtr.Zero;
+        }
+        if (msg == WM_LBUTTONUP && _moving)
+        {
+            _moving = false;
+            Native.ReleaseCapture();
+            LayoutChangedByUser?.Invoke();
+            handled = true;
+            return IntPtr.Zero;
+        }
+        if (msg == WM_CAPTURECHANGED && _moving)
+        {
+            _moving = false;
+            LayoutChangedByUser?.Invoke();
+        }
+        if (msg == WM_LBUTTONDBLCLK && WindowState == WindowState.Normal)
+        {
+            // ダブルクリックで最大化（元に戻すのは、最大化中のタイトルバー扱いで Windows がやる）
+            _moving = false;
+            Native.ReleaseCapture();
+            WindowState = WindowState.Maximized;
+            KeepAtBackIfNeeded();
+            handled = true;
+            return IntPtr.Zero;
         }
         if (msg == WM_GETMINMAXINFO)
         {

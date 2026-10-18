@@ -33,6 +33,33 @@
   <data name="UncheckAll" xml:space="preserve">
     <value>Uncheck all</value>
   </data>
+  <data name="Crop_CheckTipUnsaved" xml:space="preserve">
+    <value>No crop height saved for this app yet. Ctrl+click it during "Click to select", or turn on "Crop top" above and pick it.</value>
+  </data>
+  <data name="Output_Fullscreen" xml:space="preserve">
+    <value>Full screen (borderless)</value>
+  </data>
+  <data name="Output_SizeFormat" xml:space="preserve">
+    <value>{0}% ({1} × {2})</value>
+  </data>
+  <data name="Option_Tooltips" xml:space="preserve">
+    <value>Show tooltips</value>
+  </data>
+  <data name="BringAllToFrontTip" xml:space="preserve">
+    <value>Bring all shared windows to the front (keeps their order)</value>
+  </data>
+  <data name="Undo_Removed" xml:space="preserve">
+    <value>Stopped sharing all windows.</value>
+  </data>
+  <data name="Undo_Button" xml:space="preserve">
+    <value>Undo</value>
+  </data>
+  <data name="Toolbar_Front" xml:space="preserve">
+    <value>To front</value>
+  </data>
+  <data name="Header_DesktopTip" xml:space="preserve">
+    <value>Open the desktop folder in Explorer (handy when the output window covers the desktop)</value>
+  </data>
   <data name="Placement_Header" xml:space="preserve">
     <value>Output window placement</value>
   </data>

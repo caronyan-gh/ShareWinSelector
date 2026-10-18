@@ -79,8 +79,15 @@ public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
             if (_hasSavedCrop == value) return;
             _hasSavedCrop = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CanToggleCrop));
         }
     }
+
+    /// <summary>
+    /// 行の「クロップ」を押せるか。量が未保存のアプリでは押せない（押すといきなり調整画面になって驚くので）。
+    /// 量は「クリックで選択」中の Ctrl＋クリックか、一覧の上の「上をクロップ」から作る。
+    /// </summary>
+    public bool CanToggleCrop => _hasSavedCrop || _cropEnabled;
 
     private bool _cropEnabled;
 
@@ -93,6 +100,7 @@ public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
             if (_cropEnabled == value) return;
             _cropEnabled = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CanToggleCrop));
         }
     }
 
@@ -149,7 +157,15 @@ public partial class MainWindow : Window
         Loc.Instance.LanguageChanged += OnLanguageChanged;
         Loaded += OnLoaded;
         Closed += (_, _) => Shutdown();
+        // 「クリックで選択」は右クリックで抜けられる。膜より手前にあるメイン画面の上で右クリックしても抜けるように
+        PreviewMouseRightButtonUp += (_, e) =>
+        {
+            if (_overlay?.IsSelectMode != true) return;
+            _overlay.ExitSelectMode();
+            e.Handled = true;
+        };
         _listTimer.Tick += (_, _) => RefreshList();
+        _undoTimer.Tick += (_, _) => HideUndo();
         // 表示設定の変更は連続で来るので落ち着いてから 1 回だけ処理する
         _displayChangeTimer.Tick += (_, _) => { _displayChangeTimer.Stop(); OnDisplaySettingsChanged(); };
     }
@@ -199,7 +215,7 @@ public partial class MainWindow : Window
         if (!GraphicsCaptureSession.IsSupported())
         {
             StatusText.Text = Loc.T("Status_NotSupported");
-            App.CloseSplash();
+            CloseSplashAndApplyPin();
             IsEnabled = false;
             return;
         }
@@ -236,7 +252,7 @@ public partial class MainWindow : Window
         RefreshList();
         UpdateStatus();
         OnPipelineReady();
-        App.CloseSplash();
+        CloseSplashAndApplyPin();
         _listTimer.Start();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChangedRaw;
     }
@@ -327,6 +343,7 @@ public partial class MainWindow : Window
         _overlay.CropConfirmed += OnCropConfirmed;
         _overlay.CropCancelled += OnCropCancelled;
         _overlay.WindowClicked += ToggleSelection;
+        _overlay.WindowCtrlClicked += CropSelection;
         _overlay.SelectModeExited += () =>
         {
             _toolbar?.SetSelectMode(false);
@@ -342,6 +359,9 @@ public partial class MainWindow : Window
             else _overlay.ExitSelectMode();
         };
         _toolbar.BordersToggled += on => _overlay.ShowBorders = on;
+        // ツールバーの上で右クリックしても「クリックで選択」を抜ける
+        _toolbar.RightClicked += () => _overlay.ExitSelectMode();
+        _toolbar.BringToFrontRequested += BringSharedToFront;
         _toolbar.SettingsRequested += () =>
         {
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
@@ -413,16 +433,104 @@ public partial class MainWindow : Window
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => RefreshList();
 
+    /// <summary>
+    /// 全部外す。「やばい、全部隠したい」の緊急ボタンなので確認は出さず、代わりに数秒だけ「元に戻す」を出す。
+    /// </summary>
     private void UncheckAll_Click(object sender, RoutedEventArgs e)
     {
+        // 元に戻す用に、相手に見えていたもの（確認待ちでないもの）とクロップ量を覚えておく
+        var snapshot = _selected.Values.Where(id => !IsWaitingForReview(id.Handle))
+            .Select(id => (Identity: id, Crop: GetCropDip(id.Handle))).ToList();
         foreach (var hwnd in _selected.Keys.ToList()) RemoveSelected(hwnd);
         _compositor?.RemoveAll();
         SetCheckedSilently(_items, false);
+        UpdateStatus();
+        if (snapshot.Count > 0) ShowUndo(snapshot);
+    }
+
+    private static readonly TimeSpan UndoDuration = TimeSpan.FromSeconds(6);
+    private readonly DispatcherTimer _undoTimer = new() { Interval = UndoDuration };
+    private List<(WindowIdentity Identity, double Crop)> _undoSnapshot = [];
+
+    private void ShowUndo(List<(WindowIdentity Identity, double Crop)> snapshot)
+    {
+        _undoSnapshot = snapshot;
+        UndoBar.Visibility = CompactUndoBar.Visibility = Visibility.Visible;
+        _undoTimer.Stop();
+        _undoTimer.Start();
+    }
+
+    private void HideUndo()
+    {
+        _undoTimer.Stop();
+        _undoSnapshot = [];
+        UndoBar.Visibility = CompactUndoBar.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>全部外したのを取り消す: 同じウィンドウを同じクロップ量で、確認なしでそのまま共有し直す。</summary>
+    private void Undo_Click(object sender, RoutedEventArgs e)
+    {
+        var snapshot = _undoSnapshot;
+        HideUndo();
+        foreach (var (identity, crop) in snapshot)
+        {
+            if (!identity.IsAlive() || _selected.ContainsKey(identity.Handle)) continue;
+            var item = _items.FirstOrDefault(i => i.Handle == identity.Handle);
+            if (item is null) continue;
+            SetCheckedSilently([item], true);
+            if (!StartSharing(item, crop, hidden: false)) continue;
+            if (crop > 0) _crop[item.Handle] = crop;
+        }
+        SyncCropChecks();
         UpdateStatus();
     }
 
     /// <summary>オーバーレイの選択モードでクリックされたウィンドウの共有を切り替える。</summary>
     private void ToggleSelection(IntPtr hwnd)
+    {
+        var item = FindItem(hwnd);
+        if (item is null) return;
+        item.IsChecked = !item.IsChecked;
+        WindowList.ScrollIntoView(item);
+    }
+
+    /// <summary>
+    /// 選択モードで Ctrl＋クリック: いつも「上辺を調整してクロップ」に入る（知っている人向けの隠し操作）。
+    /// 共有していなければクロップをオンにして調整 → 確定で共有、共有中なら外さずにクロップ量を決め直す。
+    /// </summary>
+    private void CropSelection(IntPtr hwnd)
+    {
+        var item = FindItem(hwnd);
+        if (item is null) return;
+        App.Settings.CropUse[AppKeyOf(item)] = true;
+        App.Settings.Save();
+        // 調整が終わったら「クリックで選択」に戻る（続けて選べるように）。調整を始めると選択モードは一度抜ける
+        _resumeSelectAfterEdit = _overlay?.IsSelectMode == true;
+        _resumeSelectFromCompact = _selectFromCompact;
+        BeginAdjust(item);
+        WindowList.ScrollIntoView(item);
+    }
+
+    // Ctrl＋クリックでクロップを調整したあと、「クリックで選択」に戻るか（とコンパクトのボタンから始めていたか）
+    private bool _resumeSelectAfterEdit, _resumeSelectFromCompact;
+
+    /// <summary>Ctrl＋クリックで始めた調整が終わったら、「クリックで選択」に戻す。</summary>
+    private void ResumeSelectAfterEdit()
+    {
+        if (!_resumeSelectAfterEdit || _cropEditing != IntPtr.Zero || _toolbar is null) return;
+        _resumeSelectAfterEdit = false;
+        bool fromCompact = _resumeSelectFromCompact;
+        // 調整の後片付け（対象を前に出す等）が済んでから戻す
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_shuttingDown || _cropEditing != IntPtr.Zero) return;
+            _selectFromCompact = fromCompact;
+            _toolbar?.SetSelectMode(true);
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>一覧の行を探す（まだ一覧に無ければ取り直してから）。</summary>
+    private WindowItem? FindItem(IntPtr hwnd)
     {
         var item = _items.FirstOrDefault(i => i.Handle == hwnd);
         if (item is null)
@@ -430,9 +538,7 @@ public partial class MainWindow : Window
             RefreshList();
             item = _items.FirstOrDefault(i => i.Handle == hwnd);
         }
-        if (item is null) return;
-        item.IsChecked = !item.IsChecked;
-        WindowList.ScrollIntoView(item);
+        return item;
     }
 
     private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -532,10 +638,17 @@ public partial class MainWindow : Window
         int count = VisibleSharedCount;
         int pending = _selected.Count - count;
         _toolbar?.SetCount(count);
+        // クロップの調整・確認の間は、ツールバーをたたまない
+        _toolbar?.SetHold(_cropEditing != IntPtr.Zero);
         string summary = count == 0 ? Loc.T("Status_NoneShared") : Loc.F("Status_Sharing", count);
         if (pending > 0) summary += Loc.F("Status_Pending", pending);
         StatusText.Text = summary + "\n" + Loc.F("Status_ShareHint", Loc.T("Output_Title"));
         CompactStatusText.Text = summary;
+        // 共有中が無いときは「まとめて最前面」「全部外す」を押せない
+        BringAllButton.IsEnabled = CompactBringAllButton.IsEnabled = count > 0;
+        UncheckAllButton.IsEnabled = CompactUncheckAllButton.IsEnabled = _selected.Count > 0;
+        // 何か選び直したら「元に戻す」は引っ込める（戻すと選び直した分とぶつかる）
+        if (_selected.Count > 0 && _undoSnapshot.Count > 0) HideUndo();
         UpdateEmptyStates();
     }
 

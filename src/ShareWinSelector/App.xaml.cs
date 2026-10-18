@@ -70,7 +70,7 @@ public partial class App : Application
         // 最前面で出したまま、メイン画面の準備ができるまで残す
         _splash = new SplashScreen("Assets/splash.png");
         _splash.Show(autoClose: false, topMost: true);
-        Log.Info("起動");
+        Log.Info($"起動 v{ShareWinSelector.MainWindow.FullVersion}");
         // 想定外の例外で会議中に落ちないよう、UI スレッドの例外はログに残して続行する
         // （設定の読み込みより先に登録して、起動途中の失敗もログに残す）
         DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -84,6 +84,14 @@ public partial class App : Application
         Settings = AppSettings.Load();
         // MainWindow（StartupUri）の生成前に言語を決める
         Loc.Instance.SetLanguage(Settings.Language);
+        // ツールチップはすぐ出す（押す邪魔にはならないので、待たせない）
+        System.Windows.Controls.ToolTipService.InitialShowDelayProperty.OverrideMetadata(
+            typeof(FrameworkElement), new FrameworkPropertyMetadata(150));
+        System.Windows.Controls.ToolTipService.BetweenShowDelayProperty.OverrideMetadata(
+            typeof(FrameworkElement), new FrameworkPropertyMetadata(0));
+        // 設定で「ツールチップを表示」を外していたら、どの画面でも出さない
+        EventManager.RegisterClassHandler(typeof(FrameworkElement), FrameworkElement.ToolTipOpeningEvent,
+            new System.Windows.Controls.ToolTipEventHandler((_, args) => { if (!Settings.ShowTooltips) args.Handled = true; }));
         // 閉じたコンボボックスの上でホイールを回しても選択が変わらないようにする（スクロールに回す）
         EventManager.RegisterClassHandler(typeof(System.Windows.Controls.ComboBox), UIElement.PreviewMouseWheelEvent,
             new System.Windows.Input.MouseWheelEventHandler(OnComboBoxPreviewMouseWheel));

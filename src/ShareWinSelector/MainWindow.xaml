@@ -56,6 +56,18 @@
             </Setter>
         </Style>
 
+        <!-- 行ごとの「クロップ」: 量が未保存のアプリでは押せない（カーソルを乗せると作り方を出す） -->
+        <Style x:Key="RowCropCheckStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="IsEnabled" Value="{Binding CanToggleCrop}"/>
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+            <Setter Property="ToolTip" Value="{Binding [Crop_CheckTip], Source={x:Static local:Loc.Instance}}"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="ToolTip" Value="{Binding [Crop_CheckTipUnsaved], Source={x:Static local:Loc.Instance}}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <DataTemplate x:Key="ThumbnailTemplate" DataType="{x:Type local:WindowItem}">
             <ToggleButton Style="{StaticResource ThumbCardStyle}" Width="212" Margin="0,0,10,10"
                           IsChecked="{Binding IsChecked, Mode=TwoWay}" ToolTip="{Binding Display}">
@@ -82,7 +94,7 @@
                                 Visibility="{Binding CropEnabled, Converter={StaticResource BoolToVisibility}}"/>
                         <StackPanel Orientation="Horizontal">
                             <CheckBox IsChecked="{Binding CropEnabled, Mode=TwoWay}" MinHeight="0" FontSize="11" VerticalAlignment="Center"
-                                      ToolTip="{Binding [Crop_CheckTip], Source={x:Static local:Loc.Instance}}">
+                                      Style="{StaticResource RowCropCheckStyle}">
                                 <CheckBox.Content>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding [Crop_Check], Source={x:Static local:Loc.Instance}}" VerticalAlignment="Center"/>
@@ -125,14 +137,21 @@
         <!-- ヘッダー: ロゴ ＋ ピン留め・表示切替 -->
         <DockPanel Margin="0,0,0,12">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Style="{StaticResource IconButtonStyle}" Content="&#xE8B7;" Margin="0,0,8,0"
+                        ToolTip="{Binding [Header_DesktopTip], Source={x:Static local:Loc.Instance}}" Click="Desktop_Click"/>
                 <ToggleButton x:Name="PinButton" Style="{StaticResource IconToggleStyle}" Content="&#xE77A;"
                               ToolTip="{Binding [Header_PinTip], Source={x:Static local:Loc.Instance}}"
                               Checked="PinButton_Changed" Unchecked="PinButton_Changed"/>
                 <Button x:Name="ModeButton" Style="{StaticResource IconButtonStyle}" Content="&#xE73F;"
                         ToolTip="{Binding [Header_CompactTip], Source={x:Static local:Loc.Instance}}" Click="ModeButton_Click"/>
             </StackPanel>
-            <Image x:Name="LogoImage" Source="Assets/logo.png" Height="44" HorizontalAlignment="Left"
-                   RenderOptions.BitmapScalingMode="HighQuality"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <Image x:Name="LogoImage" Source="Assets/logo.png" Height="44"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <!-- 版（カーソルを乗せるとコミットまで） -->
+                <TextBlock x:Name="VersionText" FontSize="11" Margin="6,0,0,4" VerticalAlignment="Bottom"
+                           Foreground="{StaticResource BrandSubtleTextBrush}"/>
+            </StackPanel>
         </DockPanel>
 
         <!-- 通常表示 -->
@@ -156,7 +175,9 @@
                                           ToolTip="{Binding [View_ThumbnailsTip], Source={x:Static local:Loc.Instance}}" Click="ViewButton_Click"/>
                             <Button Style="{StaticResource IconButtonStyle}" Content="&#xE72C;" Margin="12,0,0,0"
                                     ToolTip="{Binding [Refresh], Source={x:Static local:Loc.Instance}}" Click="Refresh_Click"/>
-                            <Button Style="{StaticResource IconButtonStyle}" Content="&#xE894;"
+                            <Button x:Name="BringAllButton" Style="{StaticResource IconButtonStyle}" Content="&#xE8A7;"
+                                    ToolTip="{Binding [BringAllToFrontTip], Source={x:Static local:Loc.Instance}}" Click="BringAllToFront_Click"/>
+                            <Button x:Name="UncheckAllButton" Style="{StaticResource IconButtonStyle}" Content="&#xE894;"
                                     ToolTip="{Binding [UncheckAll], Source={x:Static local:Loc.Instance}}" Click="UncheckAll_Click"/>
                         </StackPanel>
                         <TextBlock Text="{Binding [Windows_Header], Source={x:Static local:Loc.Instance}}"
@@ -164,15 +185,24 @@
                                    TextTrimming="CharacterEllipsis"/>
                     </DockPanel>
 
-                    <!-- 共有のしかた（全体） -->
-                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                        <CheckBox x:Name="CropModeCheck" Margin="0,0,20,0" Checked="CropModeCheck_Changed" Unchecked="CropModeCheck_Changed"
-                                  Content="{Binding [Crop_Mode], Source={x:Static local:Loc.Instance}}"
-                                  ToolTip="{Binding [Crop_ModeTip], Source={x:Static local:Loc.Instance}}"/>
-                        <CheckBox x:Name="ConfirmCheck" Checked="ConfirmCheck_Changed" Unchecked="ConfirmCheck_Changed"
-                                  Content="{Binding [Review_Mode], Source={x:Static local:Loc.Instance}}"
-                                  ToolTip="{Binding [Review_ModeTip], Source={x:Static local:Loc.Instance}}"/>
-                    </WrapPanel>
+                    <!-- 共有のしかた（全体）。右端（全部外す ✕ の直下）には、全部外した直後だけ「元に戻す」が出る -->
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                        <StackPanel x:Name="UndoBar" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center"
+                                    Margin="12,0,0,0" Visibility="Collapsed">
+                            <TextBlock Text="{Binding [Undo_Removed], Source={x:Static local:Loc.Instance}}" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{StaticResource BrandSubtleTextBrush}"/>
+                            <Button Margin="8,0,0,0" Padding="10,2" MinHeight="0" FontSize="12" Click="Undo_Click"
+                                    Content="{Binding [Undo_Button], Source={x:Static local:Loc.Instance}}"/>
+                        </StackPanel>
+                        <WrapPanel>
+                            <CheckBox x:Name="CropModeCheck" Margin="0,0,20,0" Checked="CropModeCheck_Changed" Unchecked="CropModeCheck_Changed"
+                                      Content="{Binding [Crop_Mode], Source={x:Static local:Loc.Instance}}"
+                                      ToolTip="{Binding [Crop_ModeTip], Source={x:Static local:Loc.Instance}}"/>
+                            <CheckBox x:Name="ConfirmCheck" Checked="ConfirmCheck_Changed" Unchecked="ConfirmCheck_Changed"
+                                      Content="{Binding [Review_Mode], Source={x:Static local:Loc.Instance}}"
+                                      ToolTip="{Binding [Review_ModeTip], Source={x:Static local:Loc.Instance}}"/>
+                        </WrapPanel>
+                    </DockPanel>
 
                     <Grid>
                         <ListBox x:Name="WindowList" Background="Transparent" BorderThickness="0"
@@ -183,7 +213,7 @@
                                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="12,0,0,0"
                                                     Visibility="{Binding CropUiVisible, Converter={StaticResource BoolToVisibility}}">
                                             <CheckBox IsChecked="{Binding CropEnabled, Mode=TwoWay}" MinHeight="0" FontSize="12"
-                                                      ToolTip="{Binding [Crop_CheckTip], Source={x:Static local:Loc.Instance}}">
+                                                      Style="{StaticResource RowCropCheckStyle}">
                                 <CheckBox.Content>
                                     <StackPanel Orientation="Horizontal">
                                         <TextBlock Text="{Binding [Crop_Check], Source={x:Static local:Loc.Instance}}" VerticalAlignment="Center"/>
@@ -207,7 +237,7 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                        <ScrollViewer x:Name="ThumbScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                        <ScrollViewer x:Name="ThumbScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False"
                                       ScrollChanged="ThumbScroll_ScrollChanged">
                             <ItemsControl x:Name="ThumbList" ItemTemplate="{StaticResource ThumbnailTemplate}">
                                 <ItemsControl.ItemsPanel>
@@ -242,9 +272,25 @@
                 </Border>
 
                 <Border Style="{StaticResource CardStyle}">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <!-- 枠自体はフォーカスを受けない（Alt を押したときに設定欄が白い線で囲まれないように） -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
                         <!-- 右端は細いスクロールバーが重なるので空けておく（色相バーをつかんだつもりでスクロールしないように） -->
                         <StackPanel Margin="0,0,14,0">
+                            <!-- マウスで使う欄なので、Alt を押してもフォーカスの線は出さない（端で欠けて見えるので） -->
+                            <StackPanel.Resources>
+                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                </Style>
+                                <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                </Style>
+                                <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+                                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                </Style>
+                                <Style TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
+                                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                                </Style>
+                            </StackPanel.Resources>
                             <TextBlock Text="{Binding [Settings_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
 
                             <TextBlock TextWrapping="Wrap" Text="{Binding [Monitor_Label], Source={x:Static local:Loc.Instance}}" Margin="0,0,0,4"/>
@@ -290,6 +336,9 @@
                             <CheckBox x:Name="PopupCheck" IsChecked="True" Checked="PopupCheck_Changed" Unchecked="PopupCheck_Changed">
                                 <TextBlock Text="{Binding [Option_Popups], Source={x:Static local:Loc.Instance}}" TextWrapping="Wrap"/>
                             </CheckBox>
+                            <CheckBox x:Name="TooltipCheck" IsChecked="True" Checked="TooltipCheck_Changed" Unchecked="TooltipCheck_Changed">
+                                <TextBlock Text="{Binding [Option_Tooltips], Source={x:Static local:Loc.Instance}}" TextWrapping="Wrap"/>
+                            </CheckBox>
 
                             <TextBlock TextWrapping="Wrap" Text="{Binding [Language_Label], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
                             <ComboBox x:Name="LanguageCombo" HorizontalAlignment="Stretch" SelectionChanged="LanguageCombo_SelectionChanged"/>
@@ -315,6 +364,11 @@
                     <TextBlock Text="{Binding [Toolbar_Select], Source={x:Static local:Loc.Instance}}"/>
                 </StackPanel>
             </Button>
+            <!-- 通常表示の「上をクロップ」と同じもの（連動） -->
+            <CheckBox x:Name="CompactCropModeCheck" DockPanel.Dock="Bottom" Margin="0,8,0,0"
+                      Checked="CropModeCheck_Changed" Unchecked="CropModeCheck_Changed"
+                      Content="{Binding [Crop_Mode], Source={x:Static local:Loc.Instance}}"
+                      ToolTip="{Binding [Crop_ModeTip], Source={x:Static local:Loc.Instance}}"/>
             <Border DockPanel.Dock="Top" Style="{StaticResource CardStyle}" Padding="8" Margin="0,0,0,10">
                 <Grid Height="140">
                     <Border x:Name="CompactPreviewHost" CornerRadius="6" Background="#FF05070F"/>
@@ -327,16 +381,32 @@
                     </Border>
                 </Grid>
             </Border>
-            <TextBlock DockPanel.Dock="Top" Text="{Binding [Shared_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="CompactBringAllButton" Content="&#xE8A7;" FontFamily="{StaticResource IconFont}" FontSize="12"
+                            Padding="6,3" MinHeight="0" MinWidth="0" Margin="0,0,4,0" Click="BringAllToFront_Click"
+                            ToolTip="{Binding [BringAllToFrontTip], Source={x:Static local:Loc.Instance}}"/>
+                    <Button x:Name="CompactUncheckAllButton" Content="&#xE894;" FontFamily="{StaticResource IconFont}" FontSize="12"
+                            Padding="6,3" MinHeight="0" MinWidth="0" Click="UncheckAll_Click"
+                            ToolTip="{Binding [UncheckAll], Source={x:Static local:Loc.Instance}}"/>
+                </StackPanel>
+                <TextBlock Text="{Binding [Shared_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"
+                           Margin="0" VerticalAlignment="Center"/>
+            </DockPanel>
             <TextBlock x:Name="CompactStatusText" DockPanel.Dock="Bottom" Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap"
                        Foreground="{StaticResource BrandSubtleTextBrush}"/>
+            <StackPanel x:Name="CompactUndoBar" DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,6,0,0" Visibility="Collapsed">
+                <TextBlock Text="{Binding [Undo_Removed], Source={x:Static local:Loc.Instance}}" VerticalAlignment="Center" FontSize="12"/>
+                <Button Margin="8,0,0,0" Padding="10,2" MinHeight="0" FontSize="12" Click="Undo_Click"
+                        Content="{Binding [Undo_Button], Source={x:Static local:Loc.Instance}}"/>
+            </StackPanel>
             <Grid>
             <StackPanel x:Name="CompactSharedEmpty" VerticalAlignment="Center" HorizontalAlignment="Center">
                 <Image Source="Assets/empty-select.png" Height="64" RenderOptions.BitmapScalingMode="HighQuality"/>
                 <TextBlock Text="{Binding [Empty_Shared], Source={x:Static local:Loc.Instance}}" Margin="0,6,0,0" FontSize="12"
                            Foreground="{StaticResource BrandSubtleTextBrush}" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="260"/>
             </StackPanel>
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
                 <ItemsControl x:Name="SharedChips" ItemTemplate="{StaticResource ChipTemplate}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>

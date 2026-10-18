@@ -243,6 +243,7 @@ public partial class MainWindow
         SyncCropChecks();
         UpdateStatus();
         ProcessReviewQueue();
+        ResumeSelectAfterEdit();
     }
 
     // 確定したときの調整が、上辺をドラッグできるもの（＝クロップ量を決めるもの）だったか
@@ -257,6 +258,7 @@ public partial class MainWindow
         SyncCropChecks();
         UpdateStatus();
         ProcessReviewQueue();
+        ResumeSelectAfterEdit();
     }
 
     /// <summary>確認・調整をやめたときの後始末（_cropEditing は呼び出し側で外しておく）。</summary>
@@ -279,8 +281,13 @@ public partial class MainWindow
     {
         if (_applyingSettings || !IsInitialized) return;
         // 選んだときの初期値だけを変える（共有中のウィンドウのクロップはそのまま）
-        App.Settings.CropMode = CropModeCheck.IsChecked == true;
+        bool on = (sender as System.Windows.Controls.CheckBox)?.IsChecked == true;
+        App.Settings.CropMode = on;
         App.Settings.Save();
+        // 通常表示とコンパクト表示のチェックをそろえる
+        _applyingSettings = true;
+        CropModeCheck.IsChecked = CompactCropModeCheck.IsChecked = on;
+        _applyingSettings = false;
         SyncCropChecks();
     }
 

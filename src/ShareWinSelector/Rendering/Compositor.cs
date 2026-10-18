@@ -444,6 +444,8 @@ internal sealed class Compositor : IDisposable
     {
         List<Source> snapshot;
         lock (_device.SyncRoot) snapshot = [.. _sources.Values];
+        // 何も共有していなければ、ウィンドウを調べるまでもない（描くのは背景だけ）
+        if (snapshot.Count == 0) return [];
 
         // 本人確認: 閉じた（Closed 済み）か、HWND が別のプロセス・スレッドに使い回されたものは使わない
         var manual = new HashSet<IntPtr>();

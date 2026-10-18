@@ -33,6 +33,33 @@
   <data name="UncheckAll" xml:space="preserve">
     <value>全部外す</value>
   </data>
+  <data name="Crop_CheckTipUnsaved" xml:space="preserve">
+    <value>このアプリのクロップ量はまだ保存されていません。「クリックで選択」中に Ctrl＋クリックするか、上の「上をクロップ」をオンにしてから選ぶと作れます。</value>
+  </data>
+  <data name="Output_Fullscreen" xml:space="preserve">
+    <value>全画面（枠なし）</value>
+  </data>
+  <data name="Output_SizeFormat" xml:space="preserve">
+    <value>{0}%（{1} × {2}）</value>
+  </data>
+  <data name="Option_Tooltips" xml:space="preserve">
+    <value>ツールチップを表示</value>
+  </data>
+  <data name="BringAllToFrontTip" xml:space="preserve">
+    <value>共有中のウィンドウをまとめて最前面に（重なり順はそのまま）</value>
+  </data>
+  <data name="Undo_Removed" xml:space="preserve">
+    <value>全部外しました。</value>
+  </data>
+  <data name="Undo_Button" xml:space="preserve">
+    <value>元に戻す</value>
+  </data>
+  <data name="Toolbar_Front" xml:space="preserve">
+    <value>前面へ</value>
+  </data>
+  <data name="Header_DesktopTip" xml:space="preserve">
+    <value>デスクトップをエクスプローラーで開く（出力ウィンドウでデスクトップが隠れているときに）</value>
+  </data>
   <data name="Placement_Header" xml:space="preserve">
     <value>出力ウィンドウの配置</value>
   </data>

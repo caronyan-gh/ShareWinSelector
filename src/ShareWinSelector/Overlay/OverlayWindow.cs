@@ -39,6 +39,9 @@ internal sealed class OverlayWindow : Window
     /// <summary>選択モード中にウィンドウがクリックされた（ルートのメインウィンドウ）。</summary>
     public event Action<IntPtr>? WindowClicked;
 
+    /// <summary>選択モード中に Ctrl を押しながらウィンドウがクリックされた（クロップを調整して共有）。</summary>
+    public event Action<IntPtr>? WindowCtrlClicked;
+
     /// <summary>Esc・右クリックで選択モードが終わった。</summary>
     public event Action? SelectModeExited;
 
@@ -341,7 +344,11 @@ internal sealed class OverlayWindow : Window
         }
         if (!_selectMode) return;
         var target = HitTest(GetVisibleWindows());
-        if (target != IntPtr.Zero) WindowClicked?.Invoke(target);
+        if (target != IntPtr.Zero)
+        {
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0) WindowCtrlClicked?.Invoke(target);
+            else WindowClicked?.Invoke(target);
+        }
         _lastSignature = null;
         Refresh();
     }

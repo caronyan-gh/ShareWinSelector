@@ -24,8 +24,6 @@ internal sealed class HsvColorPicker : Grid
     {
         Height = 6, BorderBrush = Brushes.White, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(3), IsHitTestVisible = false,
     };
-    private readonly Border _swatch = new() { Width = 20, Height = 20, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1) };
-    private readonly TextBlock _hexText = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
 
     // 色相 0〜360、鮮やかさ・明るさ 0〜1
     private double _hue, _saturation, _value;
@@ -41,9 +39,8 @@ internal sealed class HsvColorPicker : Grid
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+        // 選んだ色（■ #RRGGBB）は呼び出し側（設定欄）に出すので、ここには面とバーだけ
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(120) });
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         // 色の面: 左が白 → 右が今の色相、上 → 下で黒くなる
         var whiteToClear = new Rectangle
@@ -72,13 +69,6 @@ internal sealed class HsvColorPicker : Grid
         _hueLayer.Children.Add(_hueThumb);
         SetColumn(_hueBar, 2);
         Children.Add(_hueBar);
-
-        var info = new StackPanel { Orientation = Orientation.Horizontal };
-        info.Children.Add(_swatch);
-        info.Children.Add(_hexText);
-        SetRow(info, 2);
-        SetColumnSpan(info, 3);
-        Children.Add(info);
 
         HookDrag(_svArea, p =>
         {
@@ -133,16 +123,12 @@ internal sealed class HsvColorPicker : Grid
 
     private void UpdateVisuals()
     {
-        var color = Color;
         _svArea.Background = new SolidColorBrush(FromHsv(_hue, 1, 1));
         Canvas.SetLeft(_svThumb, _saturation * _svArea.ActualWidth - ThumbSize / 2);
         Canvas.SetTop(_svThumb, (1 - _value) * _svArea.ActualHeight - ThumbSize / 2);
         _hueThumb.Width = Math.Max(0, _hueBar.ActualWidth + 4);
         Canvas.SetLeft(_hueThumb, -2);
         Canvas.SetTop(_hueThumb, _hue / 360 * _hueBar.ActualHeight - _hueThumb.Height / 2);
-        _swatch.Background = new SolidColorBrush(color);
-        _swatch.BorderBrush = new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF));
-        _hexText.Text = ToHex(color);
     }
 
     public static string ToHex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
