@@ -72,8 +72,10 @@ internal sealed class RemoteChild : IDisposable
     /// <summary>初めての親と両方の許可がそろった（親の公開鍵の指紋）。覚えておいて、次からはこの親だけにつなぐ。</summary>
     public event Action<string>? ParentPaired;
 
-    /// <summary>親の一覧でチェックが切り替えられた（子の PC でのウィンドウの番号・共有するか）。受け取る側のスレッドから通知。</summary>
-    public event Action<long, bool>? ShareRequested;
+    /// <summary>
+    /// 親の一覧でチェックが切り替えられた（子の PC でのウィンドウの番号・共有するか・親の「上をクロップ」）。受け取る側のスレッドから通知。
+    /// </summary>
+    public event Action<long, bool, bool?>? ShareRequested;
 
     /// <summary>親で「全部外す」が押された。受け取る側のスレッドから通知。</summary>
     public event Action? UncheckAllRequested;
@@ -374,7 +376,7 @@ internal sealed class RemoteChild : IDisposable
                 {
                     case RemoteProtocol.SetShared:
                         if (JsonSerializer.Deserialize<RemoteShareRequest>(message.Payload) is { } request)
-                            ShareRequested?.Invoke(request.Id, request.Shared);
+                            ShareRequested?.Invoke(request.Id, request.Shared, request.CropDefault);
                         break;
                     case RemoteProtocol.UncheckAll:
                         UncheckAllRequested?.Invoke();

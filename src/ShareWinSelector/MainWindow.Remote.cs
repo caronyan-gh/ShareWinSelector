@@ -1,4 +1,7 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
 using ShareWinSelector.Interop;
 using ShareWinSelector.Remote;
 
@@ -213,11 +216,21 @@ public partial class MainWindow
             });
         });
         // 親の一覧でチェックが切り替えられたら、この PC でいつもどおり共有する・外す
-        child.ShareRequested += (id, shared) => Dispatcher.BeginInvoke(() =>
+        child.ShareRequested += (id, shared, cropDefault) => Dispatcher.BeginInvoke(() =>
         {
             if (!ReferenceEquals(_remoteChild, child)) return;
             var item = _items.FirstOrDefault(i => !i.IsRemote && (long)i.Handle == id);
-            if (item is not null && item.IsChecked != shared) item.IsChecked = shared;
+            if (item is null || item.IsChecked == shared) return;
+            // 親で確認済み（または親で確認しない設定）なので、この PC の「共有前に確認」は使わない（クロップの範囲が未設定なら、ここで決める）
+            // クロップも親の「上をクロップ」に合わせる（このアプリだけ個別に決めてあれば、そちらが先）
+            _shareFromParent = true;
+            _parentCropDefault = cropDefault;
+            try { item.IsChecked = shared; }
+            finally
+            {
+                _shareFromParent = false;
+                _parentCropDefault = null;
+            }
         });
         // 親で「全部外す」「元に戻す」が押されたら、この PC の「全部外す」「元に戻す」と同じことをする（戻す分はこちらで覚える）
         child.UncheckAllRequested += () => Dispatcher.BeginInvoke(() =>
@@ -267,6 +280,10 @@ public partial class MainWindow
             _remoteSessionId = 0;
         }
     }
+
+    // 子: 親から頼まれた共有を始めている最中か（この PC の「共有前に確認」を使わない）と、そのときの親の「上をクロップ」
+    private bool _shareFromParent;
+    private bool? _parentCropDefault;
 
     // 子: 親の「全部外す」で外したもの（親の「元に戻す」で戻す）
     private List<(WindowIdentity Identity, double Crop)> _parentUndoSnapshot = [];
@@ -339,7 +356,7 @@ public partial class MainWindow
     {
         if (_remoteChild is not { } child) return;
         child.SubmitWindowList(_items.Where(i => !i.IsRemote)
-            .Select(i => new RemoteWindow((long)i.Handle, i.Title, i.ProcessName, i.IsChecked)).ToList());
+            .Select(i => new RemoteWindow((long)i.Handle, i.Title, i.ProcessName, i.IsChecked, i.IsChecked && IsWaitingForReview(i.Handle))).ToList());
     }
 
     /// <summary>
@@ -363,10 +380,11 @@ public partial class MainWindow
             {
                 item.Info = info;
                 item.Order = index;
+                item.RemotePending = w.Pending;
                 if (item.IsChecked != w.Shared) SetCheckedSilently([item], w.Shared);
                 continue;
             }
-            item = new WindowItem(info) { IsRemote = true, RemoteId = w.Id, IsChecked = w.Shared, Order = index, Group = group };
+            item = new WindowItem(info) { IsRemote = true, RemoteId = w.Id, IsChecked = w.Shared, RemotePending = w.Pending, Order = index, Group = group };
             item.PropertyChanged += OnItemPropertyChanged;
             _items.Add(item);
         }
@@ -455,6 +473,82 @@ public partial class MainWindow
         var byId = _items.Where(i => i.IsRemote).ToDictionary(i => i.RemoteId);
         foreach (var (id, image) in thumbnails)
             if (byId.TryGetValue(id, out var item)) item.RemoteThumbnail = image;
+    }
+
+    // 親: R の行を共有する前の確認（カーソルのそばに出す小窓）
+    private Popup? _remoteConfirm;
+
+    /// <summary>
+    /// 親: 子のウィンドウを共有する前に、カーソルのそばで確かめる。［共有する］で子に頼み、［やめる］・外をクリックでチェックを戻す。
+    /// 子のウィンドウは子の画面にあって、親の画面では確認待ちの枠を出せないので、小窓で聞く。
+    /// </summary>
+    private void ConfirmRemoteShare(WindowItem item)
+    {
+        if (_remoteConfirm is { IsOpen: true } previous) previous.IsOpen = false;
+        var message = new TextBlock
+        {
+            Text = Loc.F("RemoteConfirm_Message", _remoteMonitor?.RemoteName ?? "", item.Title),
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 320,
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+        var share = new Button
+        {
+            Content = Loc.T("RemoteConfirm_Share"),
+            Padding = new Thickness(14, 3, 14, 3),
+            IsDefault = true,
+            Background = (System.Windows.Media.Brush)FindResource("BrandBlueBrush"),
+            Foreground = System.Windows.Media.Brushes.White,
+        };
+        var cancel = new Button { Content = Loc.T("RemoteConfirm_Cancel"), Padding = new Thickness(14, 3, 14, 3), Margin = new Thickness(8, 0, 0, 0), IsCancel = true };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(share);
+        buttons.Children.Add(cancel);
+        var panel = new StackPanel();
+        panel.Children.Add(message);
+        panel.Children.Add(buttons);
+        var popup = new Popup
+        {
+            Child = new Border
+            {
+                Background = (System.Windows.Media.Brush)FindResource("BrandWindowBackgroundBrush"),
+                BorderBrush = (System.Windows.Media.Brush)FindResource("BrandBorderBrush"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 10, 12, 10),
+                Child = panel,
+            },
+            PlacementTarget = this,
+            Placement = PlacementMode.MousePoint,
+            HorizontalOffset = 12,
+            VerticalOffset = 12,
+            StaysOpen = false,
+            AllowsTransparency = true,
+        };
+        bool accepted = false;
+        share.Click += (_, _) =>
+        {
+            accepted = true;
+            popup.IsOpen = false;
+        };
+        cancel.Click += (_, _) => popup.IsOpen = false;
+        popup.Opened += (_, _) =>
+        {
+            // 自分専用の画面なので、モニターごと共有されても映らないようにする
+            if (PresentationSource.FromVisual(popup.Child) is HwndSource source) Native.ExcludeFromCapture(source.Handle);
+            share.Focus();
+        };
+        popup.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_remoteConfirm, popup)) _remoteConfirm = null;
+            // 子が切れた・行が消えたあとなら何もしない
+            if (!_items.Contains(item)) return;
+            if (accepted) _remoteParent?.RequestShare(item.RemoteId, true, CropMode);
+            else SetCheckedSilently([item], false);
+            UpdateStatus();
+        };
+        _remoteConfirm = popup;
+        popup.IsOpen = true;
     }
 
     /// <summary>親: 子が切れたら、子のウィンドウの行を全部消す。</summary>

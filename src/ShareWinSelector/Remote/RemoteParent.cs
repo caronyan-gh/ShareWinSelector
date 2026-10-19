@@ -82,9 +82,12 @@ internal sealed class RemoteParent : IDisposable
         CurrentSession()?.Send(RemoteProtocol.ThumbnailsWanted, [(byte)(wanted ? 1 : 0)]);
     }
 
-    /// <summary>子のウィンドウを共有する／外すよう頼む（UI スレッドから。送るのは別のスレッド）。つながっていなければ何もしない。</summary>
-    public void RequestShare(long id, bool shared) =>
-        CurrentSession()?.Send(RemoteProtocol.SetShared, JsonSerializer.SerializeToUtf8Bytes(new RemoteShareRequest(id, shared)));
+    /// <summary>
+    /// 子のウィンドウを共有する／外すよう頼む（UI スレッドから。送るのは別のスレッド）。つながっていなければ何もしない。
+    /// cropDefault は親の「上をクロップ」（共有するときだけ）。
+    /// </summary>
+    public void RequestShare(long id, bool shared, bool? cropDefault = null) =>
+        CurrentSession()?.Send(RemoteProtocol.SetShared, JsonSerializer.SerializeToUtf8Bytes(new RemoteShareRequest(id, shared, cropDefault)));
 
     /// <summary>子に「全部外す」を頼む（子の画面の「全部外す」と同じ。元に戻す用に子が覚えておく）。</summary>
     public void RequestUncheckAll() => CurrentSession()?.Send(RemoteProtocol.UncheckAll, []);

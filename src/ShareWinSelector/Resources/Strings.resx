@@ -144,6 +144,18 @@ That firewall rule stays even after you stop using this. If you no longer need i
   <data name="Status_SharingOnRemote" xml:space="preserve">
     <value>Sharing {1} window(s) on R (the child "{0}"). Pick R to show them.</value>
   </data>
+  <data name="Status_RemotePending" xml:space="preserve">
+    <value>{1} window(s) are waiting on the child "{0}"'s screen: set the crop or confirm there.</value>
+  </data>
+  <data name="RemoteConfirm_Message" xml:space="preserve">
+    <value>Share "{1}" from the child "{0}"?</value>
+  </data>
+  <data name="RemoteConfirm_Share" xml:space="preserve">
+    <value>Share</value>
+  </data>
+  <data name="RemoteConfirm_Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
   <data name="Status_SharingRemote" xml:space="preserve">
     <value>Sharing the screen of the child "{0}".</value>
   </data>

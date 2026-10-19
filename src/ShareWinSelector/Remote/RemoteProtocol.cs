@@ -225,8 +225,11 @@ internal static class RemoteProtocol
 /// <summary>子が最初に送る自己紹介。KnowsParent は、子がこの親を覚えているか（ペアリング済みか）。</summary>
 internal sealed record RemoteHello(string Name, string Version, bool KnowsParent = false);
 
-/// <summary>子のウィンドウ 1 つ分（親の一覧に並べる）。Id は子の PC でのウィンドウの番号。</summary>
-internal sealed record RemoteWindow(long Id, string Title, string Process, bool Shared);
+/// <summary>
+/// 子のウィンドウ 1 つ分（親の一覧に並べる）。Id は子の PC でのウィンドウの番号。
+/// Pending は、共有に選ばれているが、子の画面で確認・クロップの範囲を決めるのを待っている（まだ相手に見えていない）。
+/// </summary>
+internal sealed record RemoteWindow(long Id, string Title, string Process, bool Shared, bool Pending = false);
 
-/// <summary>親から子への「共有する／外す」。</summary>
-internal sealed record RemoteShareRequest(long Id, bool Shared);
+/// <summary>親から子への「共有する／外す」。CropDefault は親の「上をクロップ」（子は、そのアプリを個別に決めていなければこれを使う）。</summary>
+internal sealed record RemoteShareRequest(long Id, bool Shared, bool? CropDefault = null);

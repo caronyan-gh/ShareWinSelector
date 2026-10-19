@@ -156,6 +156,9 @@ public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
     /// <summary>子の PC でのウィンドウの番号（IsRemote のとき）。</summary>
     public long RemoteId { get; init; }
 
+    /// <summary>子で共有に選ばれているが、子の画面で確認・クロップの範囲を決めるのを待っている（IsRemote のとき）。</summary>
+    public bool RemotePending { get; set; }
+
     private System.Windows.Media.ImageSource? _remoteThumbnail;
 
     /// <summary>子のウィンドウのサムネイル（子から数秒おきに届く静止画。この PC のウィンドウでは null）。</summary>
@@ -747,8 +750,10 @@ public partial class MainWindow : Window
         if (e.PropertyName != nameof(WindowItem.IsChecked)) return;
         if (item.IsRemote)
         {
-            // 子のウィンドウ: 子に頼むだけ（子が共有に入ったら、届く一覧でチェックが確定する）
-            _remoteParent?.RequestShare(item.RemoteId, item.IsChecked);
+            // 子のウィンドウ: 子に頼むだけ（子が共有に入ったら、届く一覧でチェックが確定する）。
+            // 「共有前に確認」がオンなら、頼む前にカーソルのそばで確かめる（子の画面では確かめない）
+            if (item.IsChecked && App.Settings.ConfirmBeforeShare) ConfirmRemoteShare(item);
+            else _remoteParent?.RequestShare(item.RemoteId, item.IsChecked, item.IsChecked ? CropMode : null);
             return;
         }
 
@@ -847,6 +852,9 @@ public partial class MainWindow : Window
             : count == 0 && remoteShared > 0 ? Loc.F("Status_SharingOnRemote", _remoteMonitor?.RemoteName ?? "", remoteShared)
             : count == 0 ? Loc.T("Status_NoneShared") : Loc.F("Status_Sharing", count);
         if (pending > 0) summary += Loc.F("Status_Pending", pending);
+        // 子の画面で確認・クロップの範囲を決めるのを待っているものがあれば知らせる（親からは「頼んだのに映らない」ように見えるので）
+        int remotePending = _items.Count(i => i.IsRemote && i.IsChecked && i.RemotePending);
+        if (remotePending > 0) summary += "\n" + Loc.F("Status_RemotePending", _remoteMonitor?.RemoteName ?? "", remotePending);
         StatusText.Text = summary + "\n" + Loc.F("Status_ShareHint", Loc.T("Output_Title"));
         CompactStatusText.Text = summary;
         // 共有中が無いときは「まとめて最前面」「全部外す」を押せない

@@ -45,8 +45,9 @@ public partial class MainWindow
     /// <summary>
     /// このウィンドウにクロップを効かせるか。行で個別に切り替えていればそれ、
     /// 無ければ一覧の上の「上をクロップ」（＝選んだときの初期値）。
+    /// 親から頼まれた共有（リモート連携の子）では、一覧の上の設定の代わりに親の「上をクロップ」を使う。
     /// </summary>
-    private bool UsesCrop(WindowItem item) => CropPreferenceFor(item) ?? CropMode;
+    private bool UsesCrop(WindowItem item) => CropPreferenceFor(item) ?? (_shareFromParent ? _parentCropDefault : null) ?? CropMode;
 
     /// <summary>各行の「クロップ」チェックと保存済みアイコンを今の状態に合わせる。</summary>
     private void SyncCropChecks()
@@ -73,7 +74,8 @@ public partial class MainWindow
         bool useCrop = UsesCrop(item);
         double saved = useCrop ? SavedCropFor(item) : 0;
         bool needsCropSetup = useCrop && saved <= 0;
-        bool needsReview = App.Settings.ConfirmBeforeShare || needsCropSetup;
+        // 親から頼まれた共有（リモート連携の子）は、親の側で確かめるので、ここでは確かめない（クロップの範囲が未設定なら決める）
+        bool needsReview = (App.Settings.ConfirmBeforeShare && !_shareFromParent) || needsCropSetup;
         if (!StartSharing(item, saved, hidden: needsReview)) return;
         // クロップの状態はここで決め直す（前に共有していたときの値を残さない）
         if (saved > 0) _crop[item.Handle] = saved;
@@ -152,8 +154,8 @@ public partial class MainWindow
         SyncCropChecks();
     }
 
-    /// <summary>親: 子のウィンドウ（R の行）のうち、子で共有中のものの数。</summary>
-    private int RemoteSharedCount => _items.Count(i => i.IsRemote && i.IsChecked);
+    /// <summary>親: 子のウィンドウ（R の行）のうち、子で共有中のものの数（子の画面で確認・クロップの範囲を決める待ちのものは数えない）。</summary>
+    private int RemoteSharedCount => _items.Count(i => i.IsRemote && i.IsChecked && !i.RemotePending);
 
     /// <summary>相手に実際に見えている（確認・調整待ちでない）共有中のウィンドウの数。</summary>
     private int VisibleSharedCount => _selected.Keys.Count(h => !IsWaitingForReview(h));
