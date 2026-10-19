@@ -73,6 +73,13 @@ public partial class MainWindow
         ? (App.Settings.RemotePairedParent is null ? Loc.T("Remote_PairedParentNone") : Loc.T("Remote_PairedParentYes"))
         : Loc.F("Remote_PairedChildren", App.Settings.RemotePairedChildren.Count);
 
+    /// <summary>番号の窓を重ねて出す先: 特殊設定が開いていればそれ、無ければメイン画面（最小化中は画面の中央）。</summary>
+    private Window? PairWindowAnchor()
+    {
+        if (_advancedWindow is { IsVisible: true } advanced && advanced.WindowState != WindowState.Minimized) return advanced;
+        return IsVisible && WindowState != WindowState.Minimized ? this : null;
+    }
+
     /// <summary>親: この子（公開鍵の指紋）をペアリングで覚えているか（受け取る側のスレッドから呼ばれる）。</summary>
     private bool IsKnownChild(string thumbprint)
     {
@@ -92,7 +99,7 @@ public partial class MainWindow
             if (cancel.IsCancellationRequested) return Task.FromResult(false);
             var parent = _remoteParent;
             SetRemoteStatus(Loc.F("Remote_StatusParentWaiting", name, code));
-            var window = new RemotePairWindow(Loc.F("Pair_Message", name), code, cancel);
+            var window = new RemotePairWindow(Loc.F("Pair_Message", name), code, cancel, PairWindowAnchor());
             window.Closed += (_, _) =>
             {
                 if (ReferenceEquals(_remoteParent, parent) && _remoteMonitor is null)
@@ -132,7 +139,7 @@ public partial class MainWindow
         return Dispatcher.InvokeAsync(() =>
         {
             if (cancel.IsCancellationRequested) return Task.FromResult(false);
-            var window = new RemotePairWindow(Loc.F("Pair_MessageChild", parentName), code, cancel);
+            var window = new RemotePairWindow(Loc.F("Pair_MessageChild", parentName), code, cancel, PairWindowAnchor());
             window.Show();
             window.Activate();
             return window.Result;
