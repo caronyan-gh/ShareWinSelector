@@ -753,7 +753,7 @@ public partial class MainWindow : Window
             // 子のウィンドウ: 子に頼むだけ（子が共有に入ったら、届く一覧でチェックが確定する）。
             // 「共有前に確認」がオンなら、頼む前にカーソルのそばで確かめる（子の画面では確かめない）
             if (item.IsChecked && App.Settings.ConfirmBeforeShare) ConfirmRemoteShare(item);
-            else _remoteParent?.RequestShare(item.RemoteId, item.IsChecked, item.IsChecked ? CropMode : null);
+            else RequestRemoteShare(item, item.IsChecked);
             return;
         }
 

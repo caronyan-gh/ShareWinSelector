@@ -222,7 +222,7 @@ public partial class MainWindow
             var item = _items.FirstOrDefault(i => !i.IsRemote && (long)i.Handle == id);
             if (item is null || item.IsChecked == shared) return;
             // 親で確認済み（または親で確認しない設定）なので、この PC の「共有前に確認」は使わない（クロップの範囲が未設定なら、ここで決める）
-            // クロップも親の「上をクロップ」に合わせる（このアプリだけ個別に決めてあれば、そちらが先）
+            // クロップは、親かこの PC の「上をクロップ」のどちらかがオンならする（このアプリだけ個別に決めてあれば、そちらが先）
             _shareFromParent = true;
             _parentCropDefault = cropDefault;
             try { item.IsChecked = shared; }
@@ -372,10 +372,15 @@ public partial class MainWindow
         if (!ReferenceEquals(_remoteParent, parent)) return;
         var existing = _items.Where(i => i.IsRemote).ToDictionary(i => i.RemoteId);
         var group = RemoteItemGroup();
+        int newlyWaiting = 0;
         for (int index = 0; index < windows.Count; index++)
         {
             var w = windows[index];
             var info = new WindowInfo(IntPtr.Zero, w.Title, w.Process);
+            // 親から共有を頼んだウィンドウが、子の画面で決める待ちになった（カーソルのそばで知らせる）
+            if (w.Pending && _remoteShareRequested.Remove(w.Id, out var requestedAt) && DateTime.UtcNow - requestedAt < TimeSpan.FromSeconds(30))
+                newlyWaiting++;
+            else if (w.Shared && !w.Pending) _remoteShareRequested.Remove(w.Id);
             if (existing.Remove(w.Id, out var item))
             {
                 item.Info = info;
@@ -396,6 +401,74 @@ public partial class MainWindow
         }
         // 子のウィンドウの共有の有無で「全部外す」を押せるかが変わる
         UpdateStatus();
+        if (newlyWaiting > 0) ShowRemoteWaitingHint();
+        // 子の画面で決め終わったら（待ちが無くなったら）、知らせは引っ込める
+        else if (_remoteWaitingHint is { IsOpen: true } hint && !_items.Any(i => i.IsRemote && i.IsChecked && i.RemotePending)) hint.IsOpen = false;
+    }
+
+    // 親: 子に共有を頼んだ時刻（子の画面で決める待ちになったら、カーソルのそばで知らせるため）
+    private readonly Dictionary<long, DateTime> _remoteShareRequested = [];
+    private Popup? _remoteWaitingHint;
+    private System.Windows.Threading.DispatcherTimer? _remoteWaitingHintTimer;
+
+    /// <summary>親: 子のウィンドウを共有する／外すよう頼む。共有するときは親の「上をクロップ」も伝え、頼んだ時刻を覚える。</summary>
+    private void RequestRemoteShare(WindowItem item, bool shared)
+    {
+        if (_remoteParent is not { } parent) return;
+        if (shared) _remoteShareRequested[item.RemoteId] = DateTime.UtcNow;
+        else _remoteShareRequested.Remove(item.RemoteId);
+        parent.RequestShare(item.RemoteId, shared, shared ? CropMode : null);
+    }
+
+    /// <summary>
+    /// 親: 「子の画面でクロップの範囲を決めてください」をカーソルのそばに出す（ステータス行だけだと気づきにくいので）。
+    /// 子で決め終わるか、数秒たつか、クリックすると消える。
+    /// </summary>
+    private void ShowRemoteWaitingHint()
+    {
+        if (_remoteWaitingHint is { IsOpen: true } previous) previous.IsOpen = false;
+        var popup = new Popup
+        {
+            Child = new Border
+            {
+                Background = (System.Windows.Media.Brush)FindResource("BrandWindowBackgroundBrush"),
+                BorderBrush = (System.Windows.Media.Brush)FindResource("BrandCyanBrush"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 8, 12, 8),
+                Child = new TextBlock
+                {
+                    Text = Loc.F("RemoteWaiting_Hint", _remoteMonitor?.RemoteName ?? ""),
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 320,
+                },
+            },
+            PlacementTarget = this,
+            Placement = PlacementMode.MousePoint,
+            HorizontalOffset = 12,
+            VerticalOffset = 12,
+            StaysOpen = false,
+            AllowsTransparency = true,
+        };
+        popup.Opened += (_, _) =>
+        {
+            // 自分専用の画面なので、モニターごと共有されても映らないようにする
+            if (PresentationSource.FromVisual(popup.Child) is HwndSource source) Native.ExcludeFromCapture(source.Handle);
+        };
+        popup.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_remoteWaitingHint, popup)) _remoteWaitingHint = null;
+        };
+        _remoteWaitingHint = popup;
+        popup.IsOpen = true;
+        _remoteWaitingHintTimer?.Stop();
+        _remoteWaitingHintTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+        _remoteWaitingHintTimer.Tick += (_, _) =>
+        {
+            _remoteWaitingHintTimer?.Stop();
+            popup.IsOpen = false;
+        };
+        _remoteWaitingHintTimer.Start();
     }
 
     // 子から届いた一覧・サムネイルは、UI スレッドへまとめて渡す（届くたびに 1 つずつ頼むと、UI が追いつかないことがある）。
@@ -543,7 +616,7 @@ public partial class MainWindow
             if (ReferenceEquals(_remoteConfirm, popup)) _remoteConfirm = null;
             // 子が切れた・行が消えたあとなら何もしない
             if (!_items.Contains(item)) return;
-            if (accepted) _remoteParent?.RequestShare(item.RemoteId, true, CropMode);
+            if (accepted) RequestRemoteShare(item, true);
             else SetCheckedSilently([item], false);
             UpdateStatus();
         };
@@ -554,6 +627,8 @@ public partial class MainWindow
     /// <summary>親: 子が切れたら、子のウィンドウの行を全部消す。</summary>
     private void RemoveRemoteItems()
     {
+        _remoteShareRequested.Clear();
+        if (_remoteWaitingHint is { IsOpen: true } hint) hint.IsOpen = false;
         foreach (var item in _items.Where(i => i.IsRemote).ToList())
         {
             item.PropertyChanged -= OnItemPropertyChanged;

@@ -45,9 +45,9 @@ public partial class MainWindow
     /// <summary>
     /// このウィンドウにクロップを効かせるか。行で個別に切り替えていればそれ、
     /// 無ければ一覧の上の「上をクロップ」（＝選んだときの初期値）。
-    /// 親から頼まれた共有（リモート連携の子）では、一覧の上の設定の代わりに親の「上をクロップ」を使う。
+    /// 親から頼まれた共有（リモート連携の子）では、親とこの PC の「上をクロップ」のどちらかがオンならクロップする。
     /// </summary>
-    private bool UsesCrop(WindowItem item) => CropPreferenceFor(item) ?? (_shareFromParent ? _parentCropDefault : null) ?? CropMode;
+    private bool UsesCrop(WindowItem item) => CropPreferenceFor(item) ?? ((_shareFromParent && _parentCropDefault == true) || CropMode);
 
     /// <summary>各行の「クロップ」チェックと保存済みアイコンを今の状態に合わせる。</summary>
     private void SyncCropChecks()

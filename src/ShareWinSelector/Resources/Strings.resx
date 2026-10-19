@@ -150,6 +150,9 @@ That firewall rule stays even after you stop using this. If you no longer need i
   <data name="RemoteConfirm_Message" xml:space="preserve">
     <value>Share "{1}" from the child "{0}"?</value>
   </data>
+  <data name="RemoteWaiting_Hint" xml:space="preserve">
+    <value>Set the crop area on the child "{0}"'s screen. It is shown once you confirm there.</value>
+  </data>
   <data name="RemoteConfirm_Share" xml:space="preserve">
     <value>Share</value>
   </data>

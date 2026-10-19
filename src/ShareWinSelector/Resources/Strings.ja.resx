@@ -150,6 +150,9 @@ Windows のファイアウォールの確認画面が出ることがあります
   <data name="RemoteConfirm_Message" xml:space="preserve">
     <value>子「{0}」の「{1}」を共有しますか？</value>
   </data>
+  <data name="RemoteWaiting_Hint" xml:space="preserve">
+    <value>子「{0}」の画面で、クロップの範囲を決めてください。決めると相手に映ります。</value>
+  </data>
   <data name="RemoteConfirm_Share" xml:space="preserve">
     <value>共有する</value>
   </data>

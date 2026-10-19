@@ -231,5 +231,8 @@ internal sealed record RemoteHello(string Name, string Version, bool KnowsParent
 /// </summary>
 internal sealed record RemoteWindow(long Id, string Title, string Process, bool Shared, bool Pending = false);
 
-/// <summary>親から子への「共有する／外す」。CropDefault は親の「上をクロップ」（子は、そのアプリを個別に決めていなければこれを使う）。</summary>
+/// <summary>
+/// 親から子への「共有する／外す」。CropDefault は親の「上をクロップ」
+/// （子は、そのアプリを個別に決めていなければ、これと自分の「上をクロップ」のどちらかがオンならクロップする）。
+/// </summary>
 internal sealed record RemoteShareRequest(long Id, bool Shared, bool? CropDefault = null);
