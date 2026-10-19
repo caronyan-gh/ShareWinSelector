@@ -163,6 +163,7 @@
                     <TextBlock Text="{Binding Title}" MaxWidth="180" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     <Button Content="&#xE8A7;" FontFamily="{StaticResource IconFont}" FontSize="10" Padding="4" Margin="6,0,0,0"
                             MinWidth="0" MinHeight="0" Background="Transparent" BorderThickness="0"
+                            Visibility="{Binding IsLocal, Converter={StaticResource BoolToVisibility}}"
                             ToolTip="{Binding [Row_BringToFrontTip], Source={x:Static local:Loc.Instance}}" Click="BringToFront_Click"/>
                     <Button Content="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10" Padding="4" Margin="0"
                             MinWidth="0" MinHeight="0" Background="Transparent" BorderThickness="0"

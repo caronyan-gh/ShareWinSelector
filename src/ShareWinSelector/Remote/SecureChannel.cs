@@ -26,6 +26,7 @@ internal sealed class SecureChannel : IDisposable
 
     private readonly Stream _stream;
     private readonly AesGcm _send, _receive;
+    private readonly object _sendGate = new();
     private ulong _sendCounter, _receiveCounter;
 
     /// <summary>相手の公開鍵（SubjectPublicKeyInfo 形式）。</summary>
@@ -112,8 +113,13 @@ internal sealed class SecureChannel : IDisposable
         return (keys[..32], keys[32..]);
     }
 
-    /// <summary>暗号化して 1 通送る。</summary>
+    /// <summary>暗号化して 1 通送る（いくつのスレッドから呼んでもよい。受け取るのは 1 つのスレッドだけ）。</summary>
     public void Write(byte type, ReadOnlySpan<byte> payload)
+    {
+        lock (_sendGate) WriteCore(type, payload);
+    }
+
+    private void WriteCore(byte type, ReadOnlySpan<byte> payload)
     {
         int length = 1 + payload.Length + TagLength;
         var buffer = new byte[4 + length];

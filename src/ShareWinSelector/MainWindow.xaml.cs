@@ -147,6 +147,18 @@ public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
+    /// <summary>
+    /// リモート連携の子のウィンドウ（親の一覧に並べたもの）。チェックすると子に「共有して」と頼む。
+    /// この PC のウィンドウではないので Handle は 0、クロップや最前面に出す操作は出さない。
+    /// </summary>
+    public bool IsRemote { get; init; }
+
+    /// <summary>子の PC でのウィンドウの番号（IsRemote のとき）。</summary>
+    public long RemoteId { get; init; }
+
+    /// <summary>この PC のウィンドウか（子のウィンドウでは出さないボタン用）。</summary>
+    public bool IsLocal => !IsRemote;
+
     /// <summary>一覧での並び順（小さいほど上）。共有するモニターのもの・共有中のものはこれより優先して上に並ぶ。</summary>
     public int Order { get; set; }
 
@@ -489,6 +501,7 @@ public partial class MainWindow : Window
         for (int i = _items.Count - 1; i >= 0; i--)
         {
             var item = _items[i];
+            if (item.IsRemote) continue;
             if (byHandle.TryGetValue(item.Handle, out var info))
             {
                 item.Info = info;
@@ -522,6 +535,7 @@ public partial class MainWindow : Window
             _items.Insert(initial ? _items.Count : insertAt++, item);
         }
         UpdateMonitorFlags();
+        PublishRemoteWindowList();
     }
 
     // 子の画面（R）を共有している間は、この PC のウィンドウはどれも共有するモニターの上にない
@@ -568,7 +582,7 @@ public partial class MainWindow : Window
         var groups = new Dictionary<IntPtr, MonitorGroup>();
         foreach (var item in _items)
         {
-            var group = GroupOf(item.Handle, groups);
+            var group = item.IsRemote ? RemoteItemGroup() : GroupOf(item.Handle, groups);
             if (item.Group == group) continue;
             item.Group = group;
             changed = true;
@@ -589,6 +603,7 @@ public partial class MainWindow : Window
             .Select(id => (Identity: id, Crop: GetCropDip(id.Handle))).ToList();
         foreach (var hwnd in _selected.Keys.ToList()) RemoveSelected(hwnd);
         _compositor?.RemoveAll();
+        foreach (var remote in _items.Where(i => i.IsRemote && i.IsChecked)) _remoteParent?.RequestShare(remote.RemoteId, false);
         SetCheckedSilently(_items, false);
         UpdateStatus();
         if (snapshot.Count > 0) ShowUndo(snapshot);
@@ -696,6 +711,12 @@ public partial class MainWindow : Window
             return;
         }
         if (e.PropertyName != nameof(WindowItem.IsChecked)) return;
+        if (item.IsRemote)
+        {
+            // 子のウィンドウ: 子に頼むだけ（子が共有に入ったら、届く一覧でチェックが確定する）
+            _remoteParent?.RequestShare(item.RemoteId, item.IsChecked);
+            return;
+        }
 
         if (item.IsChecked)
         {
@@ -797,6 +818,7 @@ public partial class MainWindow : Window
         UncheckAllButton.IsEnabled = CompactUncheckAllButton.IsEnabled = _selected.Count > 0;
         // 何か選び直したら「元に戻す」は引っ込める（戻すと選び直した分とぶつかる）
         if (_selected.Count > 0 && _undoSnapshot.Count > 0) HideUndo();
+        PublishRemoteWindowList();
         UpdateEmptyStates();
     }
 

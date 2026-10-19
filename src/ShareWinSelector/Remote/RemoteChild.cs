@@ -62,6 +62,21 @@ internal sealed class RemoteChild : IDisposable
     /// <summary>初めての親に許可された（親の公開鍵の指紋）。覚えておいて、次からはこの親だけにつなぐ。</summary>
     public event Action<string>? ParentPaired;
 
+    /// <summary>親の一覧でチェックが切り替えられた（子の PC でのウィンドウの番号・共有するか）。受け取る側のスレッドから通知。</summary>
+    public event Action<long, bool>? ShareRequested;
+
+    // 親へ送るウィンドウの一覧（JSON）。送ったものと違えば送る
+    private byte[]? _windowList;
+    private byte[]? _sentWindowList;
+
+    /// <summary>この PC のウィンドウの一覧を渡す（UI スレッドから）。変わっていれば親へ送る。</summary>
+    public void SubmitWindowList(IReadOnlyList<RemoteWindow> windows)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(windows);
+        lock (_gate) _windowList = json;
+        _frameReady.Set();
+    }
+
     /// <param name="pinnedParent">ペアリングで覚えた親の公開鍵の指紋（無ければ null＝初めてつなぐ親として許可を待つ）。</param>
     public RemoteChild(string host, int port, string name, RemoteIdentity identity, string? pinnedParent)
     {
@@ -140,20 +155,35 @@ internal sealed class RemoteChild : IDisposable
                 Log.Info($"リモート連携: 親 {_host}:{_port} につながりました");
                 loggedFailure = false;
 
+                // 親からの「共有する／外す」は別のスレッドで受け取る（こちらは送り続ける）
+                var channel = stream;
+                var reader = new Thread(() => ReceiveRequests(channel)) { IsBackground = true, Name = "RemoteChild.Receive" };
+                reader.Start();
+                lock (_gate) _sentWindowList = null; // つなぎ直したら、一覧は必ず送り直す
+
                 byte[]? lastJpeg = null;
+                var lastFrameSent = System.Diagnostics.Stopwatch.StartNew();
                 while (!_stop.IsSet)
                 {
                     _frameReady.WaitOne(KeepAliveInterval);
                     if (_stop.IsSet) break;
                     (byte[] Pixels, int Width, int Height)? frame;
+                    byte[]? list = null;
                     lock (_gate)
                     {
                         frame = _latest;
                         _latest = null;
+                        if (_windowList is not null && (_sentWindowList is null || !_windowList.AsSpan().SequenceEqual(_sentWindowList)))
+                            list = _sentWindowList = _windowList;
                     }
+                    if (list is not null) stream.Write(RemoteProtocol.WindowList, list);
                     if (frame is { } f) lastJpeg = JpegCodec.Encode(f.Pixels, f.Width, f.Height, JpegQuality);
-                    // 新しい絵が無ければ最後の絵を送り直す（2 秒ごと、つながっている確認）
-                    if (lastJpeg is not null) stream.Write(RemoteProtocol.Frame, lastJpeg);
+                    // 新しい絵は送る。無ければ 2 秒ごとに最後の絵を送り直す（つながっている確認。一覧だけ変わったときは送らない）
+                    if (lastJpeg is not null && (frame is not null || lastFrameSent.Elapsed >= KeepAliveInterval))
+                    {
+                        stream.Write(RemoteProtocol.Frame, lastJpeg);
+                        lastFrameSent.Restart();
+                    }
                 }
             }
             catch (Exception ex) when (!_stop.IsSet)
@@ -172,6 +202,24 @@ internal sealed class RemoteChild : IDisposable
             {
                 lock (_gate) _client = null;
             }
+        }
+    }
+
+    /// <summary>親からの「共有する／外す」を受け取る（つながっている間だけ。切れたら終わる）。</summary>
+    private void ReceiveRequests(SecureChannel channel)
+    {
+        try
+        {
+            while (!_stop.IsSet && channel.Read() is { } message)
+            {
+                if (message.Type != RemoteProtocol.SetShared) continue;
+                if (JsonSerializer.Deserialize<RemoteShareRequest>(message.Payload) is { } request)
+                    ShareRequested?.Invoke(request.Id, request.Shared);
+            }
+        }
+        catch
+        {
+            // 切れたとき（送る側のループがつなぎ直す）
         }
     }
 

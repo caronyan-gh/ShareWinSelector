@@ -117,6 +117,7 @@ public partial class MainWindow
             parent.ChildConnected += (name, w, h) => Dispatcher.BeginInvoke(() => OnChildConnected(parent, name, w, h));
             parent.ChildDisconnected += () => Dispatcher.BeginInvoke(() => OnChildDisconnected(parent));
             parent.FrameReceived += (pixels, w, h) => OnRemoteFrame(parent, pixels, w, h);
+            parent.WindowListReceived += windows => Dispatcher.BeginInvoke(() => UpdateRemoteItems(parent, windows));
             _remoteParent = parent;
             SetRemoteStatus(Loc.F("Remote_StatusListening", port));
             Log.Info($"リモート連携: 親として待ち受け開始（ポート {port}）");
@@ -162,6 +163,13 @@ public partial class MainWindow
                 _ => Loc.F("Remote_StatusConnecting", detail),
             });
         });
+        // 親の一覧でチェックが切り替えられたら、この PC でいつもどおり共有する・外す
+        child.ShareRequested += (id, shared) => Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(_remoteChild, child)) return;
+            var item = _items.FirstOrDefault(i => !i.IsRemote && (long)i.Handle == id);
+            if (item is not null && item.IsChecked != shared) item.IsChecked = shared;
+        });
         // 初めての親に許可されたら、その親を覚える（次からはこの親だけにつなぐ）
         child.ParentPaired += thumbprint => Dispatcher.BeginInvoke(() =>
         {
@@ -172,6 +180,7 @@ public partial class MainWindow
         // 合成した絵を親へ渡す（変わったときだけ）
         if (_compositor is not null) _compositor.FrameSink = child.SubmitFrame;
         SetChildOutputOffScreen(true);
+        PublishRemoteWindowList();
         Log.Info($"リモート連携: 子として {address}:{App.Settings.RemotePort} へ");
     }
 
@@ -236,7 +245,64 @@ public partial class MainWindow
     {
         _remoteMonitor = null;
         _compositor?.ClearRemoteFrame();
+        RemoveRemoteItems();
         RefreshMonitorList();
+    }
+
+    // --- 子のウィンドウを親の一覧に並べる ---
+
+    /// <summary>子: この PC のウィンドウの一覧（共有中かどうか付き）を親へ送る（変わっていなければ送られない）。</summary>
+    private void PublishRemoteWindowList()
+    {
+        if (_remoteChild is not { } child) return;
+        child.SubmitWindowList(_items.Where(i => !i.IsRemote)
+            .Select(i => new RemoteWindow((long)i.Handle, i.Title, i.ProcessName, i.IsChecked)).ToList());
+    }
+
+    /// <summary>
+    /// 親: 子のウィンドウの行が入るまとまり。R を共有している間は一番上（共有するモニターの側）、
+    /// そうでなければ「── R 子の名前 ──」の区切り線の下に薄く。
+    /// </summary>
+    private MonitorGroup RemoteItemGroup() =>
+        CurrentMonitor?.IsRemote == true ? MonitorGroup.Shared : new MonitorGroup(10000, "R  " + (_remoteMonitor?.RemoteName ?? ""));
+
+    /// <summary>親: 子から届いた一覧で、子のウィンドウの行を出し入れし、チェックを子の今の状態に合わせる。</summary>
+    private void UpdateRemoteItems(RemoteParent parent, IReadOnlyList<RemoteWindow> windows)
+    {
+        if (!ReferenceEquals(_remoteParent, parent)) return;
+        var existing = _items.Where(i => i.IsRemote).ToDictionary(i => i.RemoteId);
+        var group = RemoteItemGroup();
+        for (int index = 0; index < windows.Count; index++)
+        {
+            var w = windows[index];
+            var info = new WindowInfo(IntPtr.Zero, w.Title, w.Process);
+            if (existing.Remove(w.Id, out var item))
+            {
+                item.Info = info;
+                item.Order = index;
+                if (item.IsChecked != w.Shared) SetCheckedSilently([item], w.Shared);
+                continue;
+            }
+            item = new WindowItem(info) { IsRemote = true, RemoteId = w.Id, IsChecked = w.Shared, Order = index, Group = group };
+            item.PropertyChanged += OnItemPropertyChanged;
+            _items.Add(item);
+        }
+        // 子で閉じられたウィンドウは消す
+        foreach (var gone in existing.Values)
+        {
+            gone.PropertyChanged -= OnItemPropertyChanged;
+            _items.Remove(gone);
+        }
+    }
+
+    /// <summary>親: 子が切れたら、子のウィンドウの行を全部消す。</summary>
+    private void RemoveRemoteItems()
+    {
+        foreach (var item in _items.Where(i => i.IsRemote).ToList())
+        {
+            item.PropertyChanged -= OnItemPropertyChanged;
+            _items.Remove(item);
+        }
     }
 
     /// <summary>

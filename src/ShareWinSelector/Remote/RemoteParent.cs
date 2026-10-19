@@ -36,6 +36,22 @@ internal sealed class RemoteParent : IDisposable
     /// <summary>子の絵が届いた（BGRA の画素・幅・高さ）。受け取る側のスレッドから通知。</summary>
     public event Action<byte[], int, int>? FrameReceived;
 
+    /// <summary>子のウィンドウの一覧が届いた。受け取る側のスレッドから通知。</summary>
+    public event Action<IReadOnlyList<RemoteWindow>>? WindowListReceived;
+
+    // 今つながっている子との通信路（親から「共有する／外す」を送るため）
+    private SecureChannel? _channel;
+
+    /// <summary>子のウィンドウを共有する／外すよう頼む（UI スレッドから）。つながっていなければ何もしない。</summary>
+    public void RequestShare(long id, bool shared)
+    {
+        SecureChannel? channel;
+        lock (_gate) channel = _channel;
+        if (channel is null) return;
+        try { channel.Write(RemoteProtocol.SetShared, JsonSerializer.SerializeToUtf8Bytes(new RemoteShareRequest(id, shared))); }
+        catch (Exception ex) { Log.Error("リモート連携: 子へ切り替えを送れませんでした", ex); }
+    }
+
     /// <param name="approve">
     /// 子をつないでよいか（子の公開鍵の指紋・子の名前・ペアリングの番号）。許可済みの子ならすぐ true、
     /// 初めての子なら画面で確かめてから答える。受け取る側のスレッドから呼ばれ、答えが出るまで待つ。
@@ -113,11 +129,16 @@ internal sealed class RemoteParent : IDisposable
                 Log.Info($"リモート連携: 子「{childName}」を断りました");
                 return;
             }
+            lock (_gate) if (ReferenceEquals(_current, client)) _channel = stream;
             while (_running && IsCurrent(client))
             {
                 if (stream.Read() is not { } message) break;
                 switch (message.Type)
                 {
+                    case RemoteProtocol.WindowList:
+                        if (JsonSerializer.Deserialize<List<RemoteWindow>>(message.Payload) is { } windows)
+                            WindowListReceived?.Invoke(windows);
+                        break;
                     case RemoteProtocol.Frame:
                         var (pixels, width, height) = JpegCodec.Decode(message.Payload);
                         if (!IsCurrent(client)) return;
@@ -146,7 +167,11 @@ internal sealed class RemoteParent : IDisposable
             lock (_gate)
             {
                 wasCurrent = ReferenceEquals(_current, client);
-                if (wasCurrent) _current = null;
+                if (wasCurrent)
+                {
+                    _current = null;
+                    _channel = null;
+                }
             }
             // 新しい子に替わったときは「切れた」を出さない（すぐ次の子がつながる）
             if (announced && wasCurrent && _running)

@@ -24,6 +24,12 @@ internal static class RemoteProtocol
     /// <summary>親 → 子: つながない（親の画面で拒否された、または時間切れ）。</summary>
     public const byte Rejected = 4;
 
+    /// <summary>子 → 親: 子のウィンドウの一覧（JSON の RemoteWindow の配列）。変わったときに送る。</summary>
+    public const byte WindowList = 5;
+
+    /// <summary>親 → 子: このウィンドウを共有する／外す（JSON の RemoteShareRequest）。</summary>
+    public const byte SetShared = 6;
+
     /// <summary>1 通の上限（壊れたデータで巨大な配列を作らないように）。</summary>
     public const int MaxMessage = 32 * 1024 * 1024;
 
@@ -78,3 +84,9 @@ internal static class RemoteProtocol
 
 /// <summary>子が最初に送る自己紹介。</summary>
 internal sealed record RemoteHello(string Name, string Version);
+
+/// <summary>子のウィンドウ 1 つ分（親の一覧に並べる）。Id は子の PC でのウィンドウの番号。</summary>
+internal sealed record RemoteWindow(long Id, string Title, string Process, bool Shared);
+
+/// <summary>親から子への「共有する／外す」。</summary>
+internal sealed record RemoteShareRequest(long Id, bool Shared);
