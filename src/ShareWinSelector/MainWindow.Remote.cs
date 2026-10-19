@@ -13,6 +13,8 @@ public partial class MainWindow
 {
     private RemoteParent? _remoteParent;
     private RemoteChild? _remoteChild;
+    // この PC の鍵（初めて使うときに作って設定フォルダに置く。Windows の鍵の保管庫には置かない）
+    private RemoteIdentity? _remoteIdentity;
     // 親: つながっている子の画面（共有するモニターの一覧に R として出す）
     private MonitorInfo? _remoteMonitor;
     private string _remoteStatus = "";
@@ -42,8 +44,68 @@ public partial class MainWindow
             SetRemoteStatus(Loc.T("Remote_StatusOff"));
             return;
         }
+        try
+        {
+            _remoteIdentity ??= RemoteIdentity.LoadOrCreate();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("リモート連携: 鍵を用意できませんでした", ex);
+            SetRemoteStatus(Loc.F("Remote_StatusError", ex.Message));
+            return;
+        }
         if (s.RemoteRole == "Child") StartChild();
         else StartParent();
+    }
+
+    /// <summary>ペアリングで覚えた親・子を忘れる（次につなぐときに、もう一度番号を確かめる）。</summary>
+    internal void UnpairRemote()
+    {
+        App.Settings.RemotePairedParent = null;
+        App.Settings.RemotePairedChildren.Clear();
+        App.Settings.Save();
+        Log.Info("リモート連携: ペアリングを解除しました");
+        ApplyRemoteSettings();
+    }
+
+    /// <summary>ペアリングの今の状態の一文（特殊設定のダイアログに出す）。</summary>
+    internal string RemotePairingSummary => App.Settings.RemoteRole == "Child"
+        ? (App.Settings.RemotePairedParent is null ? Loc.T("Remote_PairedParentNone") : Loc.T("Remote_PairedParentYes"))
+        : Loc.F("Remote_PairedChildren", App.Settings.RemotePairedChildren.Count);
+
+    /// <summary>
+    /// 親: 子をつないでよいか（受け取る側のスレッドから呼ばれる）。許可済みの子ならすぐ許可。
+    /// 初めての子なら、ペアリングの番号を出した窓で聞き、許可されたら覚える。
+    /// </summary>
+    private Task<bool> ApproveChild(string thumbprint, string name, string code)
+    {
+        return Dispatcher.InvokeAsync(() =>
+        {
+            if (App.Settings.RemotePairedChildren.ContainsKey(thumbprint))
+            {
+                App.Settings.RemotePairedChildren[thumbprint] = name;
+                return Task.FromResult(true);
+            }
+            SetRemoteStatus(Loc.F("Remote_StatusParentWaiting", name, code));
+            var window = new RemotePairWindow(name, code);
+            window.Show();
+            window.Activate();
+            return window.Result.ContinueWith(t =>
+            {
+                bool allowed = t.Result;
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (allowed)
+                    {
+                        App.Settings.RemotePairedChildren[thumbprint] = name;
+                        App.Settings.Save();
+                        Log.Info($"リモート連携: 子「{name}」とペアリングしました");
+                    }
+                    if (_remoteParent is not null) SetRemoteStatus(Loc.F("Remote_StatusListening", App.Settings.RemotePort));
+                });
+                return allowed;
+            });
+        }).Task.Unwrap();
     }
 
     private void StartParent()
@@ -51,7 +113,7 @@ public partial class MainWindow
         int port = App.Settings.RemotePort;
         try
         {
-            var parent = new RemoteParent(port, LocalName);
+            var parent = new RemoteParent(port, LocalName, _remoteIdentity!, ApproveChild);
             parent.ChildConnected += (name, w, h) => Dispatcher.BeginInvoke(() => OnChildConnected(parent, name, w, h));
             parent.ChildDisconnected += () => Dispatcher.BeginInvoke(() => OnChildDisconnected(parent));
             parent.FrameReceived += (pixels, w, h) => OnRemoteFrame(parent, pixels, w, h);
@@ -66,6 +128,18 @@ public partial class MainWindow
         }
     }
 
+    // 子として動いている間は、出力ウィンドウを画面外に置く（見る人はいない。描く先として要るだけ）
+    private bool _childOutputOffScreen;
+
+    /// <summary>出力ウィンドウを子用に画面外へ置く・設定どおりの配置に戻す。子の間は配置の設定を押せなくする。</summary>
+    private void SetChildOutputOffScreen(bool on)
+    {
+        _childOutputOffScreen = on;
+        PlacementBack.IsEnabled = PlacementNormal.IsEnabled = PlacementOffScreen.IsEnabled = !on;
+        PlacementChildNote.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        if (_output is not null) _output.Placement = on ? Output.OutputPlacement.OffScreen : SelectedPlacement;
+    }
+
     private void StartChild()
     {
         string? address = App.Settings.RemoteParentAddress?.Trim();
@@ -74,28 +148,42 @@ public partial class MainWindow
             SetRemoteStatus(Loc.T("Remote_StatusNoParent"));
             return;
         }
-        var child = new RemoteChild(address, App.Settings.RemotePort, LocalName);
-        child.StateChanged += (state, host) => Dispatcher.BeginInvoke(() =>
+        var child = new RemoteChild(address, App.Settings.RemotePort, LocalName, _remoteIdentity!, App.Settings.RemotePairedParent);
+        child.StateChanged += (state, detail) => Dispatcher.BeginInvoke(() =>
         {
             if (!ReferenceEquals(_remoteChild, child)) return;
             SetRemoteStatus(state switch
             {
-                RemoteChildState.Connected => Loc.F("Remote_StatusConnected", host),
-                RemoteChildState.Retrying => Loc.F("Remote_StatusRetry", host),
-                _ => Loc.F("Remote_StatusConnecting", host),
+                RemoteChildState.Connected => Loc.F("Remote_StatusConnected", detail),
+                RemoteChildState.Retrying => Loc.F("Remote_StatusRetry", detail),
+                RemoteChildState.WaitingApproval => Loc.F("Remote_StatusWaitApproval", detail),
+                RemoteChildState.Rejected => Loc.F("Remote_StatusRejected", detail),
+                RemoteChildState.KeyChanged => Loc.F("Remote_StatusCertChanged", detail),
+                _ => Loc.F("Remote_StatusConnecting", detail),
             });
+        });
+        // 初めての親に許可されたら、その親を覚える（次からはこの親だけにつなぐ）
+        child.ParentPaired += thumbprint => Dispatcher.BeginInvoke(() =>
+        {
+            App.Settings.RemotePairedParent = thumbprint;
+            App.Settings.Save();
         });
         _remoteChild = child;
         // 合成した絵を親へ渡す（変わったときだけ）
         if (_compositor is not null) _compositor.FrameSink = child.SubmitFrame;
+        SetChildOutputOffScreen(true);
         Log.Info($"リモート連携: 子として {address}:{App.Settings.RemotePort} へ");
     }
 
     private void StopRemote()
     {
         if (_compositor is not null) _compositor.FrameSink = null;
-        _remoteChild?.Dispose();
-        _remoteChild = null;
+        if (_remoteChild is not null)
+        {
+            _remoteChild.Dispose();
+            _remoteChild = null;
+            SetChildOutputOffScreen(false);
+        }
         if (_remoteParent is not null)
         {
             _remoteParent.Dispose();

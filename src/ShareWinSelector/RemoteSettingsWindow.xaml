@@ -46,8 +46,22 @@
         </StackPanel>
 
         <TextBlock x:Name="StatusText" Margin="0,16,0,0" TextWrapping="Wrap"/>
-        <TextBlock Text="{Binding [Remote_Note], Source={x:Static local:Loc.Instance}}" Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
-                   Foreground="{StaticResource BrandSubtleTextBrush}"/>
+        <!-- ペアリング: 覚えている相手と、忘れさせるボタン -->
+        <DockPanel Margin="0,10,0,0">
+            <Button x:Name="UnpairButton" DockPanel.Dock="Right" Padding="12,4" Margin="8,0,0,0" Click="Unpair_Click"
+                    Content="{Binding [Remote_Unpair], Source={x:Static local:Loc.Instance}}"
+                    ToolTip="{Binding [Remote_UnpairTip], Source={x:Static local:Loc.Instance}}"/>
+            <TextBlock x:Name="PairingText" VerticalAlignment="Center" TextWrapping="Wrap" FontSize="12"
+                       Foreground="{StaticResource BrandSubtleTextBrush}"/>
+        </DockPanel>
+        <!-- 注意書き（実験的な機能であることなど）。目立つように枠付き・警告の色で -->
+        <Border Margin="0,12,0,0" Padding="10,8" CornerRadius="6" BorderThickness="1" BorderBrush="#B3FFB020" Background="#26FFB020">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Text="&#xE7BA;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                           Foreground="#FFFFC24D" VerticalAlignment="Top" Margin="0,1,10,0"/>
+                <TextBlock Text="{Binding [Remote_Note], Source={x:Static local:Loc.Instance}}" FontSize="12" TextWrapping="Wrap" Foreground="#FFFFE2A8"/>
+            </DockPanel>
+        </Border>
         <Button HorizontalAlignment="Right" Margin="0,16,0,0" Padding="18,4" IsCancel="True" Click="Close_Click"
                 Content="{Binding [Advanced_Close], Source={x:Static local:Loc.Instance}}"/>
     </StackPanel>

@@ -1,0 +1,20 @@
+<Window x:Class="ShareWinSelector.RemotePairWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ShareWinSelector"
+        Title="{Binding [Pair_Title], Source={x:Static local:Loc.Instance}}"
+        Width="380" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Topmost="True"
+        ShowInTaskbar="True" Icon="Assets/app.ico" Background="{StaticResource BrandWindowBackgroundBrush}">
+    <!-- リモート連携: 初めての子がつなごうとしたときに親の画面に出す。子の画面にも同じ番号が出ているのを確かめて許可する -->
+    <StackPanel Margin="20,16,20,18">
+        <TextBlock x:Name="MessageText" TextWrapping="Wrap"/>
+        <TextBlock x:Name="CodeText" Margin="0,14,0,14" HorizontalAlignment="Center" FontSize="40" FontWeight="SemiBold"
+                   Foreground="{StaticResource BrandCyanBrush}"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="AllowButton" Padding="18,4" Click="Allow_Click" Background="{StaticResource BrandBlueBrush}" Foreground="White"
+                    Content="{Binding [Pair_Allow], Source={x:Static local:Loc.Instance}}"/>
+            <Button Padding="18,4" Margin="8,0,0,0" IsCancel="True" Click="Deny_Click"
+                    Content="{Binding [Pair_Deny], Source={x:Static local:Loc.Instance}}"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

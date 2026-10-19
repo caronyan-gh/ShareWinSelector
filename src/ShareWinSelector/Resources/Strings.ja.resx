@@ -12,6 +12,49 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="Pair_Title" xml:space="preserve">
+    <value>ペアリング</value>
+  </data>
+  <data name="Pair_Message" xml:space="preserve">
+    <value>子「{0}」がつなごうとしています。
+子の画面にも同じ番号が出ているのを確かめてから、許可してください。</value>
+  </data>
+  <data name="Pair_Allow" xml:space="preserve">
+    <value>許可</value>
+  </data>
+  <data name="Pair_Deny" xml:space="preserve">
+    <value>拒否</value>
+  </data>
+  <data name="Remote_Unpair" xml:space="preserve">
+    <value>ペアリングを解除</value>
+  </data>
+  <data name="Remote_UnpairTip" xml:space="preserve">
+    <value>覚えている親・子を忘れます。次につなぐときに、もう一度番号を確かめます。</value>
+  </data>
+  <data name="Remote_PairedParentNone" xml:space="preserve">
+    <value>まだ親とペアリングしていません。</value>
+  </data>
+  <data name="Remote_PairedParentYes" xml:space="preserve">
+    <value>親とペアリング済みです。その親にだけつなぎます。</value>
+  </data>
+  <data name="Remote_PairedChildren" xml:space="preserve">
+    <value>ペアリング済みの子: {0} 台</value>
+  </data>
+  <data name="Remote_StatusParentWaiting" xml:space="preserve">
+    <value>子「{0}」がつなごうとしています（番号 {1}）。出てきた窓で許可してください。</value>
+  </data>
+  <data name="Remote_StatusWaitApproval" xml:space="preserve">
+    <value>親の画面で［許可］を押してください。番号: {0}（親の画面と同じ番号か確かめてください）</value>
+  </data>
+  <data name="Remote_StatusRejected" xml:space="preserve">
+    <value>親（{0}）につなぐのを断られました。</value>
+  </data>
+  <data name="Remote_StatusCertChanged" xml:space="preserve">
+    <value>親（{0}）がペアリングした相手と違います。親の設定を消したのなら、「ペアリングを解除」してからつなぎ直してください。</value>
+  </data>
+  <data name="Placement_ChildNote" xml:space="preserve">
+    <value>リモート連携の子として親に送っている間は、画面外に置きます。</value>
+  </data>
   <data name="Settings_Advanced" xml:space="preserve">
     <value>特殊設定</value>
   </data>
@@ -61,7 +104,10 @@
     <value>つなぐ</value>
   </data>
   <data name="Remote_Note" xml:space="preserve">
-    <value>同じ LAN の中だけで使う機能です。通信は暗号化していません。</value>
+    <value>実験的な機能です。
+同じ LAN（同じセグメント）の中で使う前提です。
+パフォーマンスが落ちることがあります。
+Windows のファイアウォールの確認画面が出ることがあります。</value>
   </data>
   <data name="Remote_StatusOff" xml:space="preserve">
     <value>リモート連携は使っていません。</value>

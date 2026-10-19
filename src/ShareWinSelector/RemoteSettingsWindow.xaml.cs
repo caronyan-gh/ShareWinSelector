@@ -48,7 +48,13 @@ public partial class RemoteSettingsWindow : Window
         ChildPanel.Visibility = ChildRadio.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void ShowStatus() => StatusText.Text = _main.RemoteStatus;
+    private void ShowStatus()
+    {
+        StatusText.Text = _main.RemoteStatus;
+        PairingText.Text = _main.RemotePairingSummary;
+    }
+
+    private void Unpair_Click(object sender, RoutedEventArgs e) => _main.UnpairRemote();
 
     private void Settings_Changed(object sender, RoutedEventArgs e)
     {

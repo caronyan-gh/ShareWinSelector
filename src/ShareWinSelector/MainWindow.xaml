@@ -324,6 +324,15 @@
                 </Border>
 
                 <Border Style="{StaticResource CardStyle}">
+                  <DockPanel>
+                    <!-- 見出しの行はスクロールしない。右端に「特殊設定」（リモート連携など、使う人だけが開く設定） -->
+                    <DockPanel DockPanel.Dock="Top" Margin="0,0,14,0">
+                        <Button DockPanel.Dock="Right" VerticalAlignment="Top" Padding="10,2" MinHeight="0" FontSize="12" Click="AdvancedSettings_Click"
+                                FocusVisualStyle="{x:Null}"
+                                Content="{Binding [Settings_Advanced], Source={x:Static local:Loc.Instance}}"
+                                ToolTip="{Binding [Settings_AdvancedTip], Source={x:Static local:Loc.Instance}}"/>
+                        <TextBlock Text="{Binding [Settings_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
+                    </DockPanel>
                     <!-- 枠自体はフォーカスを受けない（Alt を押したときに設定欄が白い線で囲まれないように） -->
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
                         <!-- 右端は細いスクロールバーが重なるので空けておく（色相バーをつかんだつもりでスクロールしないように） -->
@@ -343,13 +352,6 @@
                                     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                                 </Style>
                             </StackPanel.Resources>
-                            <!-- 見出しの右端に「特殊設定」（リモート連携など、使う人だけが開く設定） -->
-                            <DockPanel>
-                                <Button DockPanel.Dock="Right" VerticalAlignment="Top" Padding="10,2" MinHeight="0" FontSize="12" Click="AdvancedSettings_Click"
-                                        Content="{Binding [Settings_Advanced], Source={x:Static local:Loc.Instance}}"
-                                        ToolTip="{Binding [Settings_AdvancedTip], Source={x:Static local:Loc.Instance}}"/>
-                                <TextBlock Text="{Binding [Settings_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
-                            </DockPanel>
 
                             <TextBlock TextWrapping="Wrap" Text="{Binding [Monitor_Label], Source={x:Static local:Loc.Instance}}" Margin="0,0,0,4"/>
                             <ComboBox x:Name="MonitorCombo" HorizontalAlignment="Stretch" SelectionChanged="MonitorCombo_SelectionChanged"/>
@@ -374,6 +376,10 @@
                             </Popup>
 
                             <TextBlock TextWrapping="Wrap" Text="{Binding [Placement_Header], Source={x:Static local:Loc.Instance}}" Margin="0,12,0,4"/>
+                            <!-- リモート連携の子として動いている間だけ出す（そのあいだ配置は押せない） -->
+                            <TextBlock x:Name="PlacementChildNote" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,4" Visibility="Collapsed"
+                                       Foreground="{StaticResource BrandSubtleTextBrush}"
+                                       Text="{Binding [Placement_ChildNote], Source={x:Static local:Loc.Instance}}"/>
                             <RadioButton x:Name="PlacementBack" Content="{Binding [Placement_Back], Source={x:Static local:Loc.Instance}}" IsChecked="True" Checked="Placement_Checked"/>
                             <RadioButton x:Name="PlacementNormal" Content="{Binding [Placement_Normal], Source={x:Static local:Loc.Instance}}" Checked="Placement_Checked"/>
                             <RadioButton x:Name="PlacementOffScreen" Checked="Placement_Checked">
@@ -408,6 +414,7 @@
                                     ToolTip="{Binding [Settings_DeleteDataTip], Source={x:Static local:Loc.Instance}}"/>
                         </StackPanel>
                     </ScrollViewer>
+                  </DockPanel>
                 </Border>
             </DockPanel>
         </Grid>

@@ -7,15 +7,20 @@ namespace ShareWinSelector.Remote;
 
 /// <summary>
 /// リモート連携の親: 子からの接続を待ち、届いた絵を渡す。子は一度に 1 台（新しくつないできたら前の子は切る）。
-/// LAN の中で「親いますか」と聞かれたら、名前とポートを返す。
+/// 通信は暗号化し（SecureChannel）、子の公開鍵がペアリングで許可したものかを確かめる。初めての子なら、ペアリングの番号を出して
+/// 画面で許可を求める（Approve）。LAN の中で「親いますか」と聞かれたら、名前とポートを返す。
 /// </summary>
 internal sealed class RemoteParent : IDisposable
 {
     // 子は 2 秒ごとに送ってくるので、これだけ何も来なければ切れたとみなす
     private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(10);
+    // 初めての子のとき、画面で許可を押してもらうまで待つ時間（過ぎたら拒否）
+    private static readonly TimeSpan ApprovalWait = TimeSpan.FromSeconds(60);
 
     private readonly int _port;
     private readonly string _name;
+    private readonly RemoteIdentity _identity;
+    private readonly Func<string, string, string, Task<bool>> _approve;
     private readonly TcpListener _listener;
     private readonly UdpClient _udp;
     private readonly object _gate = new();
@@ -31,10 +36,16 @@ internal sealed class RemoteParent : IDisposable
     /// <summary>子の絵が届いた（BGRA の画素・幅・高さ）。受け取る側のスレッドから通知。</summary>
     public event Action<byte[], int, int>? FrameReceived;
 
-    public RemoteParent(int port, string name)
+    /// <param name="approve">
+    /// 子をつないでよいか（子の公開鍵の指紋・子の名前・ペアリングの番号）。許可済みの子ならすぐ true、
+    /// 初めての子なら画面で確かめてから答える。受け取る側のスレッドから呼ばれ、答えが出るまで待つ。
+    /// </param>
+    public RemoteParent(int port, string name, RemoteIdentity identity, Func<string, string, string, Task<bool>> approve)
     {
         _port = port;
         _name = name;
+        _identity = identity;
+        _approve = approve;
         var address = RemoteProtocol.LoopbackOnly ? IPAddress.Loopback : IPAddress.Any;
         _listener = new TcpListener(address, port);
         _listener.Start();
@@ -84,18 +95,29 @@ internal sealed class RemoteParent : IDisposable
         {
             client.NoDelay = true;
             client.ReceiveTimeout = (int)ReceiveTimeout.TotalMilliseconds;
-            using var stream = client.GetStream();
-            var magic = new byte[RemoteProtocol.Magic.Length];
-            if (!RemoteProtocol.ReadExactly(stream, magic) || !magic.AsSpan().SequenceEqual(RemoteProtocol.Magic)) return;
+            // 暗号化する。子の公開鍵は、ペアリングで許可したものかをあとで見る
+            using var raw = client.GetStream();
+            using var stream = SecureChannel.Accept(raw, _identity);
+            byte[] childKey = stream.PeerPublicKey;
+            if (stream.Read() is not { Type: RemoteProtocol.Hello } hello) return;
+            childName = JsonSerializer.Deserialize<RemoteHello>(hello.Payload)?.Name ?? "?";
+            Log.Info($"リモート連携: 子「{childName}」（{client.Client.RemoteEndPoint}）がつなごうとしています");
+
+            // 許可済みの子か、初めてなら画面で許可されたか（時間切れは拒否）
+            var decision = _approve(RemoteIdentity.ThumbprintOf(childKey), childName, RemoteIdentity.PairCode(_identity.PublicKey, childKey));
+            bool allowed = decision.Wait(ApprovalWait) && decision.Result;
+            if (!IsCurrent(client)) return;
+            stream.Write(allowed ? RemoteProtocol.Accepted : RemoteProtocol.Rejected, []);
+            if (!allowed)
+            {
+                Log.Info($"リモート連携: 子「{childName}」を断りました");
+                return;
+            }
             while (_running && IsCurrent(client))
             {
-                if (RemoteProtocol.Read(stream) is not { } message) break;
+                if (stream.Read() is not { } message) break;
                 switch (message.Type)
                 {
-                    case RemoteProtocol.Hello:
-                        childName = JsonSerializer.Deserialize<RemoteHello>(message.Payload)?.Name ?? "?";
-                        Log.Info($"リモート連携: 子「{childName}」（{client.Client.RemoteEndPoint}）がつながりました");
-                        break;
                     case RemoteProtocol.Frame:
                         var (pixels, width, height) = JpegCodec.Decode(message.Payload);
                         if (!IsCurrent(client)) return;

@@ -12,6 +12,49 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="Pair_Title" xml:space="preserve">
+    <value>Pairing</value>
+  </data>
+  <data name="Pair_Message" xml:space="preserve">
+    <value>The child "{0}" wants to connect.
+Check that the child's screen shows the same number, then allow it.</value>
+  </data>
+  <data name="Pair_Allow" xml:space="preserve">
+    <value>Allow</value>
+  </data>
+  <data name="Pair_Deny" xml:space="preserve">
+    <value>Deny</value>
+  </data>
+  <data name="Remote_Unpair" xml:space="preserve">
+    <value>Unpair</value>
+  </data>
+  <data name="Remote_UnpairTip" xml:space="preserve">
+    <value>Forget the paired parent and children. The number is checked again on the next connection.</value>
+  </data>
+  <data name="Remote_PairedParentNone" xml:space="preserve">
+    <value>Not paired with a parent yet.</value>
+  </data>
+  <data name="Remote_PairedParentYes" xml:space="preserve">
+    <value>Paired with a parent. It connects only to that parent.</value>
+  </data>
+  <data name="Remote_PairedChildren" xml:space="preserve">
+    <value>Paired children: {0}</value>
+  </data>
+  <data name="Remote_StatusParentWaiting" xml:space="preserve">
+    <value>The child "{0}" wants to connect (number {1}). Allow it in the window that appeared.</value>
+  </data>
+  <data name="Remote_StatusWaitApproval" xml:space="preserve">
+    <value>Press Allow on the parent's screen. Number: {0} (check that the parent shows the same number).</value>
+  </data>
+  <data name="Remote_StatusRejected" xml:space="preserve">
+    <value>The parent ({0}) refused the connection.</value>
+  </data>
+  <data name="Remote_StatusCertChanged" xml:space="preserve">
+    <value>The parent ({0}) is not the one you paired with. If its settings were deleted, unpair and connect again.</value>
+  </data>
+  <data name="Placement_ChildNote" xml:space="preserve">
+    <value>While sending to the parent (remote link child), the output window stays off-screen.</value>
+  </data>
   <data name="Settings_Advanced" xml:space="preserve">
     <value>Advanced</value>
   </data>
@@ -61,7 +104,10 @@
     <value>Connect</value>
   </data>
   <data name="Remote_Note" xml:space="preserve">
-    <value>For use within the same LAN only. The connection is not encrypted.</value>
+    <value>Experimental feature.
+Meant for use within the same LAN (the same network segment).
+It may reduce performance.
+Windows may ask whether to allow the connection through the firewall.</value>
   </data>
   <data name="Remote_StatusOff" xml:space="preserve">
     <value>Remote link is off.</value>

@@ -5,7 +5,9 @@ namespace ShareWinSelector.Remote;
 
 /// <summary>
 /// リモート連携の通信の決まりごと。
-/// TCP: 子が親へつなぎに行き、合成した絵（JPEG）を送る。各メッセージは [種類 1 バイト][長さ 4 バイト][中身]。
+/// TCP: 子が親へつなぎに行き、まず暗号化する（SecureChannel。お互いの公開鍵を出し合い、ペアリングで覚えた相手かを確かめる）。
+/// その中で、子が自己紹介を送り、親が許可（初めての子なら画面で確かめてから）を返したら、合成した絵（JPEG）を送る。
+/// 各メッセージは [種類 1 バイト][長さ 4 バイト][中身]。
 /// UDP: 子が LAN 全体に「親いますか」と呼びかけ、親が名前とポートを返す。
 /// </summary>
 internal static class RemoteProtocol
@@ -16,11 +18,14 @@ internal static class RemoteProtocol
     /// <summary>子 → 親: 合成した絵（JPEG）。変わったときと、つながっている確認のため 2 秒ごと。</summary>
     public const byte Frame = 2;
 
+    /// <summary>親 → 子: つないでよい（ペアリング済み、または親の画面で許可された）。</summary>
+    public const byte Accepted = 3;
+
+    /// <summary>親 → 子: つながない（親の画面で拒否された、または時間切れ）。</summary>
+    public const byte Rejected = 4;
+
     /// <summary>1 通の上限（壊れたデータで巨大な配列を作らないように）。</summary>
     public const int MaxMessage = 32 * 1024 * 1024;
-
-    /// <summary>TCP でつないだ直後に子が送る印（別のアプリがつないできたら切る）。</summary>
-    public static ReadOnlySpan<byte> Magic => "SWS1"u8;
 
     public const string FindRequest = "SWS-FIND/1";
     public const string FoundPrefix = "SWS-HERE/1|";

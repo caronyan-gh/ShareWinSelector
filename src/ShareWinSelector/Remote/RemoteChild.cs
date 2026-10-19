@@ -13,10 +13,23 @@ internal sealed record FoundParent(string Name, string Address, int Port)
 }
 
 /// <summary>子の今の状態。</summary>
-internal enum RemoteChildState { Connecting, Connected, Retrying }
+internal enum RemoteChildState
+{
+    Connecting,
+    Connected,
+    Retrying,
+    /// <summary>初めての親: 親の画面で許可されるのを待っている（詳細はペアリングの番号）。</summary>
+    WaitingApproval,
+    /// <summary>親の画面で拒否された。</summary>
+    Rejected,
+    /// <summary>ペアリングで覚えた親と鍵が違う（親が設定を消した、または別の PC）。</summary>
+    KeyChanged,
+}
 
 /// <summary>
 /// リモート連携の子: 親へつなぎに行き、合成した絵を JPEG にして送り続ける。切れたら数秒おきにつなぎ直す。
+/// 通信は暗号化し（SecureChannel）、親の公開鍵がペアリングで覚えたものと同じかを確かめる。覚えた親がまだ無ければ、
+/// ペアリングの番号を出して親の画面で許可されるのを待ち、許可されたらその親を覚える。
 /// 絵は合成の側から SubmitFrame で渡される（最新の 1 枚だけ持つので、送るのが追いつかなくても溜まらない）。
 /// </summary>
 internal sealed class RemoteChild : IDisposable
@@ -26,10 +39,16 @@ internal sealed class RemoteChild : IDisposable
     private static readonly TimeSpan RetryInterval = TimeSpan.FromSeconds(3);
     // 絵が変わらなくても、この間隔で最後の絵を送り直す（つながっていることを親に知らせる）
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(2);
+    // 親の画面で許可を押してもらうまで待つ時間（親の側の待ち時間より少し長く）
+    private static readonly TimeSpan ApprovalWait = TimeSpan.FromSeconds(75);
+    // 拒否された・証明書が違うときは、すぐにはつなぎ直さない
+    private static readonly TimeSpan RefusedRetryInterval = TimeSpan.FromSeconds(30);
 
     private readonly string _host;
     private readonly int _port;
     private readonly string _name;
+    private readonly RemoteIdentity _identity;
+    private string? _pinnedParent;
     private readonly Thread _thread;
     private readonly object _gate = new();
     private readonly AutoResetEvent _frameReady = new(false);
@@ -37,14 +56,20 @@ internal sealed class RemoteChild : IDisposable
     private (byte[] Pixels, int Width, int Height)? _latest;
     private TcpClient? _client;
 
-    /// <summary>状態が変わった（送る側のスレッドから通知）。</summary>
+    /// <summary>状態が変わった（送る側のスレッドから通知）。詳細は親の住所、待っているときはペアリングの番号。</summary>
     public event Action<RemoteChildState, string>? StateChanged;
 
-    public RemoteChild(string host, int port, string name)
+    /// <summary>初めての親に許可された（親の公開鍵の指紋）。覚えておいて、次からはこの親だけにつなぐ。</summary>
+    public event Action<string>? ParentPaired;
+
+    /// <param name="pinnedParent">ペアリングで覚えた親の公開鍵の指紋（無ければ null＝初めてつなぐ親として許可を待つ）。</param>
+    public RemoteChild(string host, int port, string name, RemoteIdentity identity, string? pinnedParent)
     {
         _host = host;
         _port = port;
         _name = name;
+        _identity = identity;
+        _pinnedParent = pinnedParent;
         // JPEG への変換に WPF の画像機能を使うので STA で動かす
         _thread = new Thread(Run) { IsBackground = true, Name = "RemoteChild" };
         _thread.SetApartmentState(ApartmentState.STA);
@@ -73,10 +98,44 @@ internal sealed class RemoteChild : IDisposable
                     throw new TimeoutException($"{_host}:{_port} につながりませんでした");
                 client.NoDelay = true;
                 lock (_gate) _client = client;
-                using var stream = client.GetStream();
-                stream.Write(RemoteProtocol.Magic);
+                // 暗号化する。親の公開鍵はペアリングで覚えたものと比べて確かめる
+                using var raw = client.GetStream();
+                using var stream = SecureChannel.Connect(raw, _identity);
+                byte[] parentKey = stream.PeerPublicKey;
+                string parentThumbprint = RemoteIdentity.ThumbprintOf(parentKey);
+                if (_pinnedParent is { } pinned && pinned != parentThumbprint)
+                {
+                    // 覚えた親と違う: つながない（親が設定を消したなら、ペアリングを解除してつなぎ直してもらう）
+                    Log.Info($"リモート連携: 親 {_host} の鍵がペアリングしたものと違うので、つなぎません");
+                    StateChanged?.Invoke(RemoteChildState.KeyChanged, _host);
+                    client.Close();
+                    _stop.Wait(RefusedRetryInterval);
+                    continue;
+                }
                 var hello = JsonSerializer.SerializeToUtf8Bytes(new RemoteHello(_name, MainWindow.FullVersion));
-                RemoteProtocol.Write(stream, RemoteProtocol.Hello, hello);
+                stream.Write(RemoteProtocol.Hello, hello);
+                if (_pinnedParent is null)
+                {
+                    // 初めての親: 両方の画面に同じ番号を出して、親の画面で許可されるのを待つ
+                    StateChanged?.Invoke(RemoteChildState.WaitingApproval, RemoteIdentity.PairCode(parentKey, _identity.PublicKey));
+                    client.ReceiveTimeout = (int)ApprovalWait.TotalMilliseconds;
+                }
+                var answer = stream.Read();
+                client.ReceiveTimeout = 0;
+                if (answer is not { Type: RemoteProtocol.Accepted })
+                {
+                    Log.Info($"リモート連携: 親 {_host} につなぐのを断られました");
+                    StateChanged?.Invoke(RemoteChildState.Rejected, _host);
+                    client.Close();
+                    _stop.Wait(RefusedRetryInterval);
+                    continue;
+                }
+                if (_pinnedParent is null)
+                {
+                    _pinnedParent = parentThumbprint;
+                    ParentPaired?.Invoke(parentThumbprint);
+                    Log.Info($"リモート連携: 親 {_host} とペアリングしました");
+                }
                 StateChanged?.Invoke(RemoteChildState.Connected, _host);
                 Log.Info($"リモート連携: 親 {_host}:{_port} につながりました");
                 loggedFailure = false;
@@ -94,7 +153,7 @@ internal sealed class RemoteChild : IDisposable
                     }
                     if (frame is { } f) lastJpeg = JpegCodec.Encode(f.Pixels, f.Width, f.Height, JpegQuality);
                     // 新しい絵が無ければ最後の絵を送り直す（2 秒ごと、つながっている確認）
-                    if (lastJpeg is not null) RemoteProtocol.Write(stream, RemoteProtocol.Frame, lastJpeg);
+                    if (lastJpeg is not null) stream.Write(RemoteProtocol.Frame, lastJpeg);
                 }
             }
             catch (Exception ex) when (!_stop.IsSet)
@@ -131,6 +190,10 @@ internal sealed class RemoteChild : IDisposable
     {
         var found = new List<FoundParent>();
         using var udp = new UdpClient(new IPEndPoint(IPAddress.Any, 0)) { EnableBroadcast = true };
+        // 誰もいない宛先（この PC 自身など）への呼びかけに「届かない」と返事が来ると、Windows は次の受信を
+        // 「接続が強制的に切断された」エラーにしてしまい、本物の親の返事を待てなくなる。その扱いを切る（SIO_UDP_CONNRESET）
+        const int SIO_UDP_CONNRESET = -1744830452;
+        try { udp.Client.IOControl(SIO_UDP_CONNRESET, [0, 0, 0, 0], null); } catch { }
         var request = Encoding.UTF8.GetBytes(RemoteProtocol.FindRequest);
         var targets = new HashSet<IPAddress> { IPAddress.Loopback };
         if (!RemoteProtocol.LoopbackOnly)
@@ -148,7 +211,12 @@ internal sealed class RemoteChild : IDisposable
         {
             while (true)
             {
-                var reply = await udp.ReceiveAsync(cts.Token);
+                UdpReceiveResult reply;
+                try { reply = await udp.ReceiveAsync(cts.Token); }
+                catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionReset)
+                {
+                    continue; // 念のため: 上の設定が効かない環境でも、待ち続ける
+                }
                 string text = Encoding.UTF8.GetString(reply.Buffer);
                 if (!text.StartsWith(RemoteProtocol.FoundPrefix, StringComparison.Ordinal)) continue;
                 var parts = text[RemoteProtocol.FoundPrefix.Length..].Split('|');

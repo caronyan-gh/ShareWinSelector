@@ -81,6 +81,12 @@ internal sealed class AppSettings
     /// <summary>子がつなぎに行く親の IP アドレス（見つけて選んだもの、または直接入れたもの）。</summary>
     public string? RemoteParentAddress { get; set; }
 
+    /// <summary>子: ペアリングした親の証明書の指紋（この親にだけつなぐ。null ならまだペアリングしていない）。</summary>
+    public string? RemotePairedParent { get; set; }
+
+    /// <summary>親: ペアリングで許可した子（証明書の指紋 → 子の名前）。ここにある子は確かめずにつなぐ。</summary>
+    public Dictionary<string, string> RemotePairedChildren { get; set; } = [];
+
     /// <summary>通常表示・コンパクト表示それぞれの位置とサイズ（null は既定）。</summary>
     public WindowBounds? NormalBounds { get; set; }
     public WindowBounds? CompactBounds { get; set; }
@@ -128,6 +134,7 @@ internal sealed class AppSettings
     {
         CropTop ??= [];
         CropUse ??= [];
+        RemotePairedChildren ??= [];
         Placement ??= "Back";
         Background ??= "Default";
         if (RemoteRole is not ("Parent" or "Child")) RemoteRole = "Parent";

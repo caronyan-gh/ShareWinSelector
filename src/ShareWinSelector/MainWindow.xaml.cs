@@ -856,15 +856,18 @@ public partial class MainWindow : Window
         SaveOptions();
     }
 
+    /// <summary>設定で選んでいる出力ウィンドウの配置。</summary>
+    private OutputPlacement SelectedPlacement =>
+        PlacementNormal.IsChecked == true ? OutputPlacement.Normal :
+        PlacementOffScreen.IsChecked == true ? OutputPlacement.OffScreen :
+        OutputPlacement.Back;
+
     private void Placement_Checked(object sender, RoutedEventArgs e)
     {
         // XAML 読み込み中（IsChecked="True" の適用時）は他の部品がまだ無い
         if (!IsInitialized) return;
-        var placement =
-            PlacementNormal.IsChecked == true ? OutputPlacement.Normal :
-            PlacementOffScreen.IsChecked == true ? OutputPlacement.OffScreen :
-            OutputPlacement.Back;
-        if (_output is not null) _output.Placement = placement;
+        // リモート連携の子として動いている間は画面外に置いたまま（設定だけ覚えて、子をやめたら戻す）
+        if (_output is not null && !_childOutputOffScreen) _output.Placement = SelectedPlacement;
         SaveOptions();
     }
 
@@ -892,6 +895,7 @@ public partial class MainWindow : Window
         App.Settings.Save();
         Loc.Instance.LanguageChanged -= OnLanguageChanged;
         StopRemote();
+        _remoteIdentity?.Dispose();
         _listTimer.Stop();
         _monitorFollowTimer.Stop();
         _displayChangeTimer.Stop();
