@@ -853,6 +853,8 @@ public partial class MainWindow : Window
         UncheckAllButton.IsEnabled = CompactUncheckAllButton.IsEnabled = _selected.Count > 0 || _items.Any(i => i.IsRemote && i.IsChecked);
         // 何か選び直したら「元に戻す」は引っ込める（戻すと選び直した分とぶつかる）
         if (_selected.Count > 0 && _undoSnapshot.Count > 0) HideUndo();
+        // 子: 親の「全部外す」のあとにこの PC で何か共有したら、親の「元に戻す」で戻す分は古いので捨てる
+        if (_selected.Count > 0) _parentUndoSnapshot = [];
         PublishRemoteWindowList();
         UpdateEmptyStates();
     }

@@ -50,7 +50,8 @@ internal sealed class RemoteParent : IDisposable
     // 画面で許可を待っている接続（一度に 1 つ）と、許可済みでつながっている子
     private TcpClient? _pending;
     private Session? _current;
-    private long _lastSessionId;
+    // 接続の番号。親を作り直しても重ならないよう、通しで振る（受け取る側は、今より小さい番号の知らせを古いものとして捨てる）
+    private static long s_lastSessionId;
     private volatile bool _thumbnailsWanted;
     private readonly object _revealGate = new();
     private DateTime _nextUnknownReveal = DateTime.MinValue;
@@ -196,12 +197,12 @@ internal sealed class RemoteParent : IDisposable
             deadline.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             client.ReceiveTimeout = (int)ReceiveTimeout.TotalMilliseconds;
 
-            // ここで初めて、今の子と入れ替える
-            session = new Session(Interlocked.Increment(ref _lastSessionId), client, channel);
+            // ここで初めて、今の子と入れ替える。番号は入れ替えと同じロックの中で振る（今の子がいつも一番大きい番号になる）
             Session? old;
             lock (_gate)
             {
                 if (!_running) return;
+                session = new Session(Interlocked.Increment(ref s_lastSessionId), client, channel);
                 old = _current;
                 _current = session;
                 if (ReferenceEquals(_pending, client)) _pending = null;

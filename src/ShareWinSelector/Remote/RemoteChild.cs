@@ -289,6 +289,9 @@ internal sealed class RemoteChild : IDisposable
                     ParentPaired?.Invoke(parentThumbprint);
                     Log.Info($"リモート連携: 親 {_host} とペアリングしました");
                 }
+                // 切れる前・切れている間に合成の側から届いて、まだ送っていない絵は捨てる（外したウィンドウが映っているかもしれない）。
+                // つながったと知らせると、合成の側が今の絵を 1 枚すぐ渡してくる
+                lock (_gate) _latest = null;
                 StateChanged?.Invoke(RemoteChildState.Connected, _host);
                 Log.Info($"リモート連携: 親 {_host}:{_port} につながりました");
                 loggedFailure = false;
@@ -456,7 +459,10 @@ internal sealed class RemoteChild : IDisposable
                 // そのときは 127.0.0.1 より LAN の住所を残す（ほかの PC からも同じ住所でつなげるように）
                 var parent = new FoundParent(RemoteProtocol.CleanText(parts[0], 64), reply.RemoteEndPoint.Address.ToString(), tcpPort);
                 int same = found.FindIndex(f => f.Name == parent.Name && f.Port == parent.Port);
-                if (same < 0 && found.Count < MaxFoundParents) found.Add(parent);
+                if (same < 0)
+                {
+                    if (found.Count < MaxFoundParents) found.Add(parent);
+                }
                 else if (IPAddress.IsLoopback(IPAddress.Parse(found[same].Address)) && !IPAddress.IsLoopback(reply.RemoteEndPoint.Address)) found[same] = parent;
             }
         }

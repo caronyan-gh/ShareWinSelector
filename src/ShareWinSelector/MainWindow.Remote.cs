@@ -120,7 +120,8 @@ public partial class MainWindow
     /// </summary>
     private void OnSessionStarted(RemoteParent parent, long session, string thumbprint, string name)
     {
-        if (!ReferenceEquals(_remoteParent, parent)) return;
+        // 知らせが前後して、古い接続の「始まった」があとから届いても戻らない（番号は新しい接続ほど大きい）
+        if (!ReferenceEquals(_remoteParent, parent) || session <= _remoteSessionId) return;
         if (_remoteSessionId != 0 && _remoteSessionId != session) DropRemoteMonitor(_remoteSessionId);
         _remoteSessionId = session;
         bool known = App.Settings.RemotePairedChildren.TryGetValue(thumbprint, out var oldName);
@@ -157,8 +158,8 @@ public partial class MainWindow
             parent.ChildConnected += (session, name, w, h) => Dispatcher.BeginInvoke(() => OnChildConnected(parent, session, name, w, h));
             parent.ChildDisconnected += session => Dispatcher.BeginInvoke(() => OnChildDisconnected(parent, session));
             parent.FrameReceived += (session, pixels, w, h) => OnRemoteFrame(parent, session, pixels, w, h);
-            parent.WindowListReceived += (session, windows) => QueueRemoteWindowList(parent, session, windows);
-            parent.ThumbnailReceived += (session, id, image) => QueueRemoteThumbnail(parent, session, id, image);
+            parent.WindowListReceived += (session, windows) => QueueRemoteWindowList(session, windows);
+            parent.ThumbnailReceived += (session, id, image) => QueueRemoteThumbnail(session, id, image);
             // サムネイル表示の間だけ、子にサムネイルを送ってもらう
             parent.SetThumbnailsWanted(ThumbViewButton.IsChecked == true);
             _remoteParent = parent;
@@ -198,6 +199,8 @@ public partial class MainWindow
             if (!ReferenceEquals(_remoteChild, child)) return;
             // 合成した絵を親へ渡すのは、つながっている間だけ（渡す先を付けると、変わっていなくても 1 枚すぐ渡る）
             _remoteChildConnected = state == RemoteChildState.Connected;
+            // 切れたら、親の「全部外す」で覚えた戻す分は捨てる（つなぎ直した親から「元に戻す」が来ても、古いものは戻さない）
+            if (!_remoteChildConnected) _parentUndoSnapshot = [];
             if (_compositor is not null) _compositor.FrameSink = _remoteChildConnected ? child.SubmitFrame : null;
             SetRemoteStatus(state switch
             {
@@ -297,12 +300,12 @@ public partial class MainWindow
         _compositor?.SetRemoteFrame(session, pixels, width, height);
         var known = _remoteMonitor;
         if (known is not null && (known.Bounds.Width != width || known.Bounds.Height != height))
-            Dispatcher.BeginInvoke(() => OnRemoteSizeChanged(parent, width, height));
+            Dispatcher.BeginInvoke(() => OnRemoteSizeChanged(parent, session, width, height));
     }
 
-    private void OnRemoteSizeChanged(RemoteParent parent, int width, int height)
+    private void OnRemoteSizeChanged(RemoteParent parent, long session, int width, int height)
     {
-        if (!ReferenceEquals(_remoteParent, parent) || _remoteMonitor is not { } m) return;
+        if (!ReferenceEquals(_remoteParent, parent) || session != _remoteSessionId || _remoteMonitor is not { } m) return;
         if (m.Bounds.Width == width && m.Bounds.Height == height) return;
         _remoteMonitor = m with { Bounds = new Native.RECT { Left = 0, Top = 0, Right = width, Bottom = height } };
         RefreshMonitorList();
@@ -318,8 +321,12 @@ public partial class MainWindow
         _compositor?.ClearRemoteFrame(session);
         lock (_remoteQueueGate)
         {
-            _pendingRemoteList = null;
-            _pendingRemoteThumbnails.Clear();
+            // その接続の分だけ捨てる（もう新しい接続の一覧が届いていれば、それは残す）
+            if (session == 0 || _pendingRemoteSession <= session)
+            {
+                _pendingRemoteList = null;
+                _pendingRemoteThumbnails.Clear();
+            }
         }
         RemoveRemoteItems();
         RefreshMonitorList();
@@ -382,47 +389,52 @@ public partial class MainWindow
     private readonly Dictionary<long, System.Windows.Media.ImageSource> _pendingRemoteThumbnails = [];
     private bool _remoteFlushPosted;
 
-    private void QueueRemoteWindowList(RemoteParent parent, long session, IReadOnlyList<RemoteWindow> windows)
+    private void QueueRemoteWindowList(long session, IReadOnlyList<RemoteWindow> windows)
     {
         lock (_remoteQueueGate)
         {
-            SwitchPendingSession(session);
+            if (!SwitchPendingSession(session)) return;
             _pendingRemoteList = windows;
         }
-        PostRemoteFlush(parent);
+        PostRemoteFlush();
     }
 
-    private void QueueRemoteThumbnail(RemoteParent parent, long session, long id, System.Windows.Media.ImageSource image)
+    private void QueueRemoteThumbnail(long session, long id, System.Windows.Media.ImageSource image)
     {
         lock (_remoteQueueGate)
         {
-            SwitchPendingSession(session);
+            if (!SwitchPendingSession(session)) return;
             if (_pendingRemoteThumbnails.Count >= MaxPendingThumbnails && !_pendingRemoteThumbnails.ContainsKey(id)) return;
             _pendingRemoteThumbnails[id] = image;
         }
-        PostRemoteFlush(parent);
+        PostRemoteFlush();
     }
 
-    /// <summary>溜めている分が別の接続のものなら捨てる（_remoteQueueGate を持って呼ぶ）。</summary>
-    private void SwitchPendingSession(long session)
+    /// <summary>
+    /// 溜めている分が古い接続のものなら捨てて、この接続の分に切り替える。この接続より新しい分を溜めていれば false（届いたものは捨てる）。
+    /// _remoteQueueGate を持って呼ぶ。
+    /// </summary>
+    private bool SwitchPendingSession(long session)
     {
-        if (_pendingRemoteSession == session) return;
+        if (session < _pendingRemoteSession) return false;
+        if (session == _pendingRemoteSession) return true;
         _pendingRemoteSession = session;
         _pendingRemoteList = null;
         _pendingRemoteThumbnails.Clear();
+        return true;
     }
 
-    private void PostRemoteFlush(RemoteParent parent)
+    private void PostRemoteFlush()
     {
         lock (_remoteQueueGate)
         {
             if (_remoteFlushPosted) return;
             _remoteFlushPosted = true;
         }
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => FlushRemoteQueue(parent));
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, FlushRemoteQueue);
     }
 
-    private void FlushRemoteQueue(RemoteParent parent)
+    private void FlushRemoteQueue()
     {
         IReadOnlyList<RemoteWindow>? list;
         List<KeyValuePair<long, System.Windows.Media.ImageSource>> thumbnails;
@@ -437,7 +449,7 @@ public partial class MainWindow
             _remoteFlushPosted = false;
         }
         // 切れた・替わった接続の分は捨てる（消した子の行を復活させない）
-        if (!ReferenceEquals(_remoteParent, parent) || session != _remoteSessionId) return;
+        if (_remoteParent is not { } parent || session != _remoteSessionId) return;
         if (list is not null) UpdateRemoteItems(parent, list);
         if (thumbnails.Count == 0) return;
         var byId = _items.Where(i => i.IsRemote).ToDictionary(i => i.RemoteId);

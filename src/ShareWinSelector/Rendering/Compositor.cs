@@ -392,6 +392,8 @@ internal sealed class Compositor : IDisposable
     private bool _remoteClear;
     // 置いてある絵・GPU に載っている絵が、どの接続のものか（切れた接続の後始末で、新しい接続の絵を消さないように）
     private long _remotePendingTag, _remoteBitmapTag;
+    // これまでに届いた一番新しい接続の番号（それより古い接続の絵が遅れて届いても受け取らない）
+    private long _remoteLatestTag;
     private volatile bool _disposed;
 
     /// <summary>子から届いた絵を差し替える（tag は接続の番号、BGRA の画素。受け取る側のスレッドから呼ぶ）。GPU へは描画スレッドが載せる。</summary>
@@ -400,6 +402,8 @@ internal sealed class Compositor : IDisposable
         if (_disposed) return;
         lock (_remoteGate)
         {
+            if (tag < _remoteLatestTag) return;
+            _remoteLatestTag = tag;
             _remotePending = (pixels, width, height);
             _remotePendingTag = tag;
         }
