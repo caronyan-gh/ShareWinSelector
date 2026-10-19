@@ -36,8 +36,9 @@ and keep working with your apps exactly as usual.
 - **Keep working as usual** — no virtual camera, no special mode. You operate the original windows directly.
 - **Notifications and chats never show up** unless you picked them. Windows you did not pick do not leak into the share, even when they overlap.
 - **Menus and dialogs of the picked apps are included** — context menus, owned dialogs and tooltips appear automatically.
-- **Switch monitors without re-sharing** — change "Monitor to share" and others see the new monitor right away; no need to stop and re-share in your meeting app.
-- **Bring all to front / Uncheck all** — raise every shared window at once, keeping their order. After unchecking all, **Undo** re-shares them (with their crop) for a few seconds.
+- **Switch monitors without re-sharing** — change "Monitor to share" and others see the new monitor right away; no need to stop and re-share in your meeting app. In compact mode, the numbered monitor buttons (1–4) switch it in one click (pick a 5th or later monitor in the normal view).
+- **Clear per monitor** — windows on the shared monitor come first in the list; windows on other monitors are dimmed below a "── DISPLAY2 ──" separator. A picked window moved to another monitor is not visible to others, so it gets a muted blue border instead.
+- **Bring all to front / Uncheck all** — raise the shared windows on the shared monitor at once, keeping their order (without flicker for others). After unchecking all, **Undo** re-shares them (with their crop) for a few seconds.
 - **Crop the top** — hide browser tab titles and the address bar. The crop is saved per app (PWAs are told apart from the browser).
 - **Confirm before sharing** — a picked window is not shown until you confirm it on screen. No more sharing the wrong window by accident.
 - **Overlay only you can see** — highlight borders around shared windows, a floating toolbar and a *click to select* mode, all excluded from capture. The toolbar folds itself after a while and unfolds when you hover over "Sharing n".

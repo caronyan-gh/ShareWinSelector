@@ -47,6 +47,13 @@ internal sealed class OverlaySurface : FrameworkElement
     private static readonly Brush CropGripBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x00, 0xD8, 0xFF)));
     private static readonly Brush GrabBandBrush = Freeze(new SolidColorBrush(Color.FromArgb(0x02, 0x00, 0x00, 0x00)));
     private static readonly Brush EditTint = Freeze(new SolidColorBrush(Color.FromArgb(0x60, 0x00, 0x00, 0x00)));
+    // 共有していないモニター（相手には見えていない）にある選択中のウィンドウ: くすんだ水色（共有中のシアンを落ち着かせた色）
+    private static readonly Brush MutedBorderBrush = Freeze(new LinearGradientBrush(
+        Color.FromRgb(0x7F, 0xAE, 0xC8), Color.FromRgb(0x4A, 0x6C, 0x8E), 45));
+    private static readonly Brush MutedTagBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x8C, 0xB4, 0xCC)));
+
+    /// <summary>共有していないモニター用の膜か（枠とラベルをくすんだ水色にして「相手には見えていない」と分かるようにする）。</summary>
+    public bool Muted { get; set; }
 
     private IReadOnlyList<OverlayItem> _items = [];
     private OverlayItem? _hover;
@@ -121,8 +128,9 @@ internal sealed class OverlaySurface : FrameworkElement
                 var outer = visible;
                 outer.Inflate(BorderThickness, BorderThickness);
                 var ring = new CombinedGeometry(GeometryCombineMode.Exclude, new RectangleGeometry(outer), new RectangleGeometry(visible));
-                dc.DrawGeometry(BorderBrush, null, ring);
-                DrawTag(dc, Loc.T("Overlay_SharedTag"), new Point(outer.Left, outer.Top), TagBrush, TagTextBrush, pixelsPerDip, above: crop <= 0);
+                dc.DrawGeometry(Muted ? MutedBorderBrush : BorderBrush, null, ring);
+                DrawTag(dc, Loc.T(Muted ? "Overlay_OtherMonitorTag" : "Overlay_SharedTag"), new Point(outer.Left, outer.Top),
+                    Muted ? MutedTagBrush : TagBrush, TagTextBrush, pixelsPerDip, above: crop <= 0);
             }
             dc.Pop();
         }

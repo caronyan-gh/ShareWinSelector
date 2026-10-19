@@ -13,6 +13,19 @@ using Windows.Graphics.Capture;
 
 namespace ShareWinSelector;
 
+/// <summary>
+/// 一覧を分けるモニターのまとまり。共有するモニターは Order = 0（区切り線なし、一番上）、
+/// ほかのモニターは Windows の番号順で、「── DISPLAY2 ──」の区切り線の下に並ぶ。
+/// </summary>
+public sealed record MonitorGroup(int Order, string Label) : IComparable
+{
+    public static MonitorGroup Shared { get; } = new(0, "");
+
+    public bool IsShared => Order == 0;
+
+    public int CompareTo(object? obj) => obj is MonitorGroup other ? Order.CompareTo(other.Order) : 1;
+}
+
 /// <summary>一覧の 1 行（チェック状態付き）。</summary>
 public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
 {
@@ -104,11 +117,37 @@ public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
         }
     }
 
+    private MonitorGroup _group = MonitorGroup.Shared;
+
+    /// <summary>
+    /// どのモニターのまとまりに入るか。共有するモニターに一部でも重なっていれば共有するモニターの側。
+    /// 一覧では共有するモニターのものを上に並べ、ほかのモニターのものは区切り線の下に薄く出す。ウィンドウをモニター間で動かすと追いかけて変わる。
+    /// </summary>
+    public MonitorGroup Group
+    {
+        get => _group;
+        set
+        {
+            if (_group == value) return;
+            bool wasShared = _group.IsShared;
+            _group = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(GroupOrder));
+            if (wasShared != value.IsShared) OnPropertyChanged(nameof(OnSharedMonitor));
+        }
+    }
+
+    /// <summary>並べ替え用のまとまりの順（共有するモニターが 0、ほかは Windows の番号）。</summary>
+    public int GroupOrder => _group.Order;
+
+    /// <summary>共有するモニターの上にあるか（ほかのモニターのものは薄く出す）。</summary>
+    public bool OnSharedMonitor => _group.IsShared;
+
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    /// <summary>一覧での並び順（小さいほど上）。共有中のものはこれより優先して上に並ぶ。</summary>
+    /// <summary>一覧での並び順（小さいほど上）。共有するモニターのもの・共有中のものはこれより優先して上に並ぶ。</summary>
     public int Order { get; set; }
 
     public override string ToString() => Display;
@@ -122,8 +161,13 @@ public partial class MainWindow : Window
     private OutputWindow? _output;
     private Compositor? _compositor;
     private OverlayWindow? _overlay;
+    // 共有していないモニターごとの膜（そこにある選択中のウィンドウに、くすんだ水色の枠を付けるだけ）
+    private readonly List<OverlayWindow> _otherOverlays = [];
+    private string? _otherOverlaysKey;
     private ToolbarWindow? _toolbar;
     private readonly ObservableCollection<WindowItem> _items = [];
+    // 一覧・サムネイルに出す並べ替え済みの見え方（「共有するモニター上のものだけ表示」の切り替えで絞り直す）
+    private System.Windows.Data.ListCollectionView _windowView = null!;
     // 一覧の並び順の採番（新しいウィンドウは上、最初に見つけたものは見つけた順）
     private int _topOrder;
     private int _bottomOrder;
@@ -133,6 +177,7 @@ public partial class MainWindow : Window
     // チェック変更をコードから行うときにハンドラを無視する
     private bool _suppressCheckHandler;
     private readonly DispatcherTimer _listTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DispatcherTimer _monitorFollowTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer _displayChangeTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
     private bool _shuttingDown;
 
@@ -143,11 +188,20 @@ public partial class MainWindow : Window
         // デバッグビルドは自分の画面もキャプチャに写るので、ひと目で分かるようにする
         Title += Interop.Native.ShouldExcludeFromCapture ? " (Debug)" : " (Debug - capturable)";
 #endif
-        // 共有中のものを上にまとめる（チェックした瞬間に並び替わる）。それ以外は見つけた順
-        var sorted = new System.Windows.Data.ListCollectionView(_items) { IsLiveSorting = true };
+        // 共有するモニターのものを上に、その中で共有中のものを上にまとめる（チェックした瞬間・モニターをまたいだ瞬間に並び替わる）。
+        // ほかのモニターのものは後ろ（共有中でも）に、モニターごとの区切り線で分けて並べる。それぞれの中は見つけた順
+        var sorted = new System.Windows.Data.ListCollectionView(_items) { IsLiveSorting = true, IsLiveFiltering = true, IsLiveGrouping = true };
+        sorted.SortDescriptions.Add(new SortDescription(nameof(WindowItem.GroupOrder), ListSortDirection.Ascending));
         sorted.SortDescriptions.Add(new SortDescription(nameof(WindowItem.IsChecked), ListSortDirection.Descending));
         sorted.SortDescriptions.Add(new SortDescription(nameof(WindowItem.Order), ListSortDirection.Ascending));
+        sorted.LiveSortingProperties.Add(nameof(WindowItem.GroupOrder));
         sorted.LiveSortingProperties.Add(nameof(WindowItem.IsChecked));
+        sorted.GroupDescriptions.Add(MonitorGrouping());
+        sorted.LiveGroupingProperties.Add(nameof(WindowItem.Group));
+        // 「共有するモニター上のものだけ表示」のときは、ほかのモニターのものを（共有中でも）出さない
+        sorted.Filter = o => MonitorOnlyButton.IsChecked != true || ((WindowItem)o).OnSharedMonitor;
+        sorted.LiveFilteringProperties.Add(nameof(WindowItem.OnSharedMonitor));
+        _windowView = sorted;
         WindowList.ItemsSource = sorted;
         ThumbList.ItemsSource = sorted;
         InitializeLayout();
@@ -165,6 +219,7 @@ public partial class MainWindow : Window
             e.Handled = true;
         };
         _listTimer.Tick += (_, _) => RefreshList();
+        _monitorFollowTimer.Tick += (_, _) => UpdateMonitorFlags();
         _undoTimer.Tick += (_, _) => HideUndo();
         // 表示設定の変更は連続で来るので落ち着いてから 1 回だけ処理する
         _displayChangeTimer.Tick += (_, _) => { _displayChangeTimer.Stop(); OnDisplaySettingsChanged(); };
@@ -207,6 +262,8 @@ public partial class MainWindow : Window
         MonitorCombo.SelectedItem = null;
         MonitorCombo.SelectedItem = monitor;
         PopulateBackgrounds(); // 選択中の表示を新しい言語に
+        // コンパクトのモニターボタンの説明（「(メイン)」表記など）も新しい言語で作り直す
+        if (MonitorCombo.ItemsSource is IReadOnlyList<MonitorInfo> monitors) RebuildCompactMonitorButtons(monitors);
         UpdateStatus();
     }
 
@@ -225,6 +282,7 @@ public partial class MainWindow : Window
 
         var monitors = MonitorEnumerator.GetMonitors();
         MonitorCombo.ItemsSource = monitors;
+        RebuildCompactMonitorButtons(monitors);
         var monitor = monitors.FirstOrDefault(m => m.DeviceName == App.Settings.MonitorDevice)
                       ?? monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
 
@@ -254,6 +312,7 @@ public partial class MainWindow : Window
         OnPipelineReady();
         CloseSplashAndApplyPin();
         _listTimer.Start();
+        _monitorFollowTimer.Start();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChangedRaw;
     }
 
@@ -331,6 +390,7 @@ public partial class MainWindow : Window
                    ?? monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
         Log.Info($"表示設定の変更: {string.Join(", ", monitors.Select(m => m.Display))} → {next.Display}");
         MonitorCombo.ItemsSource = monitors;
+        RebuildCompactMonitorButtons(monitors);
         MonitorCombo.SelectedItem = next; // SelectionChanged でキャンバス・オーバーレイを更新
         ApplyMonitor(next);
         _output?.ReapplyPlacement();
@@ -338,8 +398,7 @@ public partial class MainWindow : Window
 
     private void CreateOverlay(MonitorInfo monitor)
     {
-        // 確認待ち（まだ見せていない）のものには「共有中」の枠を付けない
-        _overlay = new OverlayWindow(() => _selected.Keys.Where(h => !_reviewQueue.Contains(h)).ToList(), GetCropDip, monitor.Bounds);
+        _overlay = new OverlayWindow(BorderTargets, GetCropDip, monitor.Bounds);
         _overlay.CropConfirmed += OnCropConfirmed;
         _overlay.CropCancelled += OnCropCancelled;
         _overlay.WindowClicked += ToggleSelection;
@@ -358,7 +417,11 @@ public partial class MainWindow : Window
             if (on) _overlay.EnterSelectMode();
             else _overlay.ExitSelectMode();
         };
-        _toolbar.BordersToggled += on => _overlay.ShowBorders = on;
+        _toolbar.BordersToggled += on =>
+        {
+            _overlay.ShowBorders = on;
+            foreach (var other in _otherOverlays) other.ShowBorders = on;
+        };
         // ツールバーの上で右クリックしても「クリックで選択」を抜ける
         _toolbar.RightClicked += () => _overlay.ExitSelectMode();
         _toolbar.BringToFrontRequested += BringSharedToFront;
@@ -375,12 +438,40 @@ public partial class MainWindow : Window
         SetOverlayVisible(OverlayCheck.IsChecked == true);
     }
 
+    /// <summary>枠を付けるウィンドウ。確認待ち（まだ見せていない）のものには付けない。</summary>
+    private IReadOnlyCollection<IntPtr> BorderTargets() => _selected.Keys.Where(h => !_reviewQueue.Contains(h)).ToList();
+
+    /// <summary>
+    /// 共有していないモニターに膜を 1 枚ずつ置く（そこへ動かした選択中のウィンドウに、相手には見えていないことが分かる、くすんだ水色の枠を付ける）。
+    /// モニターの構成か共有するモニターが変わったときだけ作り直す（言語の切り替えでの選び直しなどでは何もしない）。
+    /// </summary>
+    private void UpdateOtherOverlays(MonitorInfo shared)
+    {
+        if (_overlay is null || _toolbar is null) return;
+        var others = MonitorEnumerator.GetMonitors().Where(m => m.DeviceName != shared.DeviceName).ToList();
+        string key = shared.DeviceName + "|" + string.Join(";", others.Select(m => $"{m.DeviceName}:{m.Bounds.Left},{m.Bounds.Top},{m.Bounds.Width},{m.Bounds.Height}"));
+        if (key == _otherOverlaysKey) return;
+        _otherOverlaysKey = key;
+        foreach (var old in _otherOverlays) old.CloseForShutdown();
+        _otherOverlays.Clear();
+        foreach (var m in others)
+        {
+            var overlay = new OverlayWindow(BorderTargets, GetCropDip, m.Bounds, secondary: true) { ToolbarHandle = _toolbar.Handle };
+            overlay.IgnoredHandles.Add(_overlay.Handle);
+            overlay.ShowBorders = _overlay.ShowBorders;
+            overlay.Show();
+            overlay.Visibility = _overlay.Visibility;
+            _otherOverlays.Add(overlay);
+        }
+    }
+
     private void SetOverlayVisible(bool visible)
     {
         if (_overlay is null || _toolbar is null) return;
         if (!visible) _overlay.ExitSelectMode();
         _overlay.Visibility = visible ? Visibility.Visible : Visibility.Hidden;
         _toolbar.Visibility = visible ? Visibility.Visible : Visibility.Hidden;
+        foreach (var other in _otherOverlays) other.Visibility = _overlay.Visibility;
     }
 
     /// <summary>一覧を最新化する。既存の行は残したまま、増減とタイトル変更だけ反映する。</summary>
@@ -390,10 +481,8 @@ public partial class MainWindow : Window
         foreach (var dead in _selected.Values.Where(id => !id.IsAlive()).ToList())
             RemoveSelected(dead.Handle);
 
+        // ほかのモニターのものも一覧には持っておく（並べ方と「共有するモニター上のものだけ表示」は見え方の側で決める）
         var current = WindowEnumerator.GetCapturableWindows();
-        // 共有するモニター上のものだけにする（共有中のものは下の処理で残る）
-        if (MonitorOnlyButton.IsChecked == true && CurrentMonitor is { } monitor)
-            current = current.Where(w => WindowEnumerator.IsOnMonitor(w.Handle, monitor.Bounds)).ToList();
         var byHandle = current.ToDictionary(w => w.Handle);
 
         for (int i = _items.Count - 1; i >= 0; i--)
@@ -414,6 +503,7 @@ public partial class MainWindow : Window
         // 新しく開いたウィンドウは目に付くよう（共有中のものの次の）先頭に入れる（current は手前 → 奥の順）
         var existing = _items.Select(i => i.Handle).ToHashSet();
         var added = current.Where(w => !existing.Contains(w.Handle)).ToList();
+        var groups = new Dictionary<IntPtr, MonitorGroup>();
         bool initial = existing.Count == 0;
         int order = initial ? _bottomOrder : _topOrder - added.Count;
         if (initial) _bottomOrder += added.Count;
@@ -425,10 +515,64 @@ public partial class MainWindow : Window
             item.CropUiVisible = true;
             item.HasSavedCrop = SavedCropFor(item) > 0;
             item.CropEnabled = CropPreferenceFor(item) == true;
+            item.Group = GroupOf(item.Handle, groups);
             item.Order = order++;
             item.PropertyChanged += OnItemPropertyChanged;
             _items.Insert(initial ? _items.Count : insertAt++, item);
         }
+        UpdateMonitorFlags();
+    }
+
+    private bool IsOnSharedMonitor(IntPtr hwnd) =>
+        CurrentMonitor is not { } monitor || WindowEnumerator.IsOnMonitor(hwnd, monitor.Bounds);
+
+    /// <summary>モニターごとのまとまりで分ける（まとまりは共有するモニター → Windows の番号順）。</summary>
+    internal static System.Windows.Data.PropertyGroupDescription MonitorGrouping()
+    {
+        var grouping = new System.Windows.Data.PropertyGroupDescription(nameof(WindowItem.Group));
+        grouping.SortDescriptions.Add(new SortDescription("Name", ListSortDirection.Ascending));
+        return grouping;
+    }
+
+    /// <summary>ウィンドウが入るモニターのまとまり。共有するモニターに一部でも重なっていればそちら、ほかは一番大きく重なっているモニター。</summary>
+    private MonitorGroup GroupOf(IntPtr hwnd, Dictionary<IntPtr, MonitorGroup> cache)
+    {
+        if (IsOnSharedMonitor(hwnd)) return MonitorGroup.Shared;
+        // 最小化中は元に戻したときの位置で決まる
+        IntPtr hMon = Interop.Native.MonitorFromWindow(hwnd, Interop.Native.MONITOR_DEFAULTTONEAREST);
+        if (cache.TryGetValue(hMon, out var group)) return group;
+        var info = new Interop.Native.MONITORINFOEX { cbSize = System.Runtime.InteropServices.Marshal.SizeOf<Interop.Native.MONITORINFOEX>() };
+        string device = Interop.Native.GetMonitorInfo(hMon, ref info) ? info.szDevice : "?";
+        // どのモニターにも映っていない（画面の外に置かれたなど）もので、一番近いのが共有するモニターなら、共有するモニターの側に入れる
+        if (device == CurrentMonitor?.DeviceName)
+        {
+            cache[hMon] = MonitorGroup.Shared;
+            return MonitorGroup.Shared;
+        }
+        int number = MonitorNumber(device);
+        // 番号が分からないものは最後（共有するモニターの 0 と重ならないよう 1 以上）
+        group = new MonitorGroup(number == int.MaxValue ? 9999 : Math.Max(1, number), device.TrimStart('\\', '.'));
+        cache[hMon] = group;
+        return group;
+    }
+
+    /// <summary>
+    /// 各行が共有するモニターの上にあるかを付け直す（一覧の並びと薄い表示がモニター間の移動に付いてくる）。
+    /// 一覧の見直し（2 秒ごと）より細かく、0.5 秒ごとに呼ぶ。ウィンドウの位置を聞くだけなので軽い。
+    /// </summary>
+    private void UpdateMonitorFlags()
+    {
+        bool changed = false;
+        var groups = new Dictionary<IntPtr, MonitorGroup>();
+        foreach (var item in _items)
+        {
+            var group = GroupOf(item.Handle, groups);
+            if (item.Group == group) continue;
+            item.Group = group;
+            changed = true;
+        }
+        // サムネイルの薄さは DWM に送り直す（WPF の不透明度は DWM のサムネイルには効かないので）
+        if (changed) _thumbnails?.UpdateAll();
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e) => RefreshList();
@@ -656,6 +800,7 @@ public partial class MainWindow : Window
     {
         if (CurrentMonitor is not { } monitor) return;
         ApplyMonitor(monitor);
+        SyncCompactMonitorButtons();
         if (_compositor is not null) RefreshList(); // 一覧をこのモニターのものに
         App.Settings.MonitorDevice = monitor.DeviceName;
         App.Settings.Save();
@@ -668,6 +813,7 @@ public partial class MainWindow : Window
         _output?.SetCanvasSize(monitor.Bounds.Width, monitor.Bounds.Height);
         _overlay?.SetMonitor(monitor.Bounds);
         _toolbar?.SetMonitor(monitor.Bounds);
+        UpdateOtherOverlays(monitor);
     }
 
     private void OverlayCheck_Changed(object sender, RoutedEventArgs e)
@@ -724,10 +870,12 @@ public partial class MainWindow : Window
         App.Settings.Save();
         Loc.Instance.LanguageChanged -= OnLanguageChanged;
         _listTimer.Stop();
+        _monitorFollowTimer.Stop();
         _displayChangeTimer.Stop();
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChangedRaw;
         _thumbnails?.Dispose();
         _overlay?.CloseForShutdown();
+        foreach (var other in _otherOverlays) other.CloseForShutdown();
         _toolbar?.CloseForShutdown();
         DisposePipeline();
         _output?.CloseForShutdown();

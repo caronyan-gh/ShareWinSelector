@@ -11,6 +11,7 @@ namespace ShareWinSelector.Overlay;
 /// 対象モニター全体を覆う、自分にだけ見える透明オーバーレイ。
 /// 通常はクリック透過で強調枠だけ描き、選択モード中はクリックでウィンドウを選べる。
 /// 画面キャプチャからは除外される。
+/// 共有していないモニター用（secondary）は、そこにある選択中のウィンドウに色違いの枠を描くだけ（選択モードもクロップ調整もしない）。
 /// </summary>
 internal sealed class OverlayWindow : Window
 {
@@ -29,6 +30,8 @@ internal sealed class OverlayWindow : Window
     private IntPtr _hoverTarget;
     // 前回描いた内容。null で次回必ず描き直す
     private string? _lastSignature;
+    // 共有していないモニター用（枠だけ、色違い）
+    private readonly bool _secondary;
 
     // 見張る間隔: 操作中・何かが動いている間は細かく（枠がウィンドウに付いてくるように）、落ち着いたら間引く
     private static readonly TimeSpan BusyInterval = TimeSpan.FromMilliseconds(33);
@@ -54,6 +57,9 @@ internal sealed class OverlayWindow : Window
     /// <summary>枠の重なり判定・クリック判定から除外する自前ウィンドウ（ツールバー等）。</summary>
     public IntPtr ToolbarHandle { get; set; }
 
+    /// <summary>枠の重なり判定から除外するほかの自前ウィンドウ（共有していないモニター用の膜から見た、共有するモニターの膜など）。</summary>
+    public HashSet<IntPtr> IgnoredHandles { get; } = [];
+
     /// <summary>メイン画面。RaiseMainInSelectMode のとき、選択モード中は膜の上に出す。</summary>
     public IntPtr MainHandle { get; set; }
 
@@ -71,12 +77,14 @@ internal sealed class OverlayWindow : Window
     private Rect _cropTargetBounds;
     private double _cropTargetScale = 1; // ウィンドウの物理ピクセル / DIP
 
-    public OverlayWindow(Func<IReadOnlyCollection<IntPtr>> getSelected, Func<IntPtr, double> getCropDip, Native.RECT monitor)
+    public OverlayWindow(Func<IReadOnlyCollection<IntPtr>> getSelected, Func<IntPtr, double> getCropDip, Native.RECT monitor, bool secondary = false)
     {
         _getSelected = getSelected;
         _getCropDip = getCropDip;
         _monitor = monitor;
-        Title = "ShareWinSelector Overlay";
+        _secondary = secondary;
+        _surface.Muted = secondary;
+        Title = secondary ? "ShareWinSelector Overlay (other monitor)" : "ShareWinSelector Overlay";
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
         Background = Brushes.Transparent;
@@ -159,6 +167,8 @@ internal sealed class OverlayWindow : Window
 
     public void SetMonitor(Native.RECT monitor)
     {
+        // 同じモニターの選び直し（言語の切り替えなど）では置き直さない。置き直すと最前面に出し直されて、ツールバーより手前に来てしまう
+        if (monitor.Left == _monitor.Left && monitor.Top == _monitor.Top && monitor.Width == _monitor.Width && monitor.Height == _monitor.Height) return;
         _monitor = monitor;
         ApplyBounds();
     }
@@ -179,7 +189,7 @@ internal sealed class OverlayWindow : Window
 
     public void EnterSelectMode()
     {
-        if (_selectMode || _hwnd == IntPtr.Zero) return;
+        if (_selectMode || _hwnd == IntPtr.Zero || _secondary) return;
         _selectMode = true;
         Native.SetExStyle(_hwnd, 0, Native.WS_EX_TRANSPARENT | Native.WS_EX_NOACTIVATE);
         Activate();
@@ -221,7 +231,7 @@ internal sealed class OverlayWindow : Window
     /// </summary>
     public void BeginCropEdit(IntPtr hwnd, double initialDip, bool allowDrag = true)
     {
-        if (_hwnd == IntPtr.Zero) return;
+        if (_hwnd == IntPtr.Zero || _secondary) return;
         ExitSelectMode();
         // 置き換え: 前の調整は呼び出し側で後始末済みなので、キャンセル通知は出さない（入れ子を防ぐ）
         if (IsCropEditing) EndCropEdit(confirm: false, notify: false);
@@ -358,7 +368,7 @@ internal sealed class OverlayWindow : Window
         // モニター一覧はタスクバーを見つけたときだけ取る（見張りのたびに取ると重い）
         List<MonitorInfo>? monitors = null;
         return WindowEnumerator.GetVisibleWindowsTopDown()
-            .Where(w => w.Handle != _hwnd && w.Handle != ToolbarHandle && !w.IsClickThrough
+            .Where(w => w.Handle != _hwnd && w.Handle != ToolbarHandle && !w.IsClickThrough && !IgnoredHandles.Contains(w.Handle)
                         && !(IsTaskbar(w.Handle) && IsOutsideAllMonitors(w, monitors ??= MonitorEnumerator.GetMonitors())))
             .ToList();
     }

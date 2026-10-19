@@ -20,6 +20,7 @@ internal sealed class DwmThumbnails : IDisposable
         // 前回 DWM に送った内容（同じなら送り直さない）。Applied が false なら未送信
         public bool Applied;
         public bool LastVisible;
+        public byte LastOpacity;
         public Native.RECT LastDest, LastSource;
     }
 
@@ -66,15 +67,17 @@ internal sealed class DwmThumbnails : IDisposable
     private void Update(FrameworkElement placeholder, Entry entry)
     {
         bool visible = TryGetLayout(placeholder, entry, out var dest, out var source);
-        // レイアウトのたびに呼ばれるので、位置も表示も変わっていなければ DWM に送らない
-        if (entry.Applied && entry.LastVisible == visible
+        // WPF の不透明度（ほかのモニターのウィンドウを薄くするなど）は DWM のサムネイルには効かないので、同じ薄さを DWM に渡す
+        byte opacity = (byte)Math.Round(255 * EffectiveOpacity(placeholder));
+        // レイアウトのたびに呼ばれるので、位置も表示も薄さも変わっていなければ DWM に送らない
+        if (entry.Applied && entry.LastVisible == visible && entry.LastOpacity == opacity
             && (!visible || (SameRect(entry.LastDest, dest) && SameRect(entry.LastSource, source)))) return;
 
         var props = new Native.DWM_THUMBNAIL_PROPERTIES
         {
             dwFlags = Native.DWM_TNP_VISIBLE | Native.DWM_TNP_RECTDESTINATION | Native.DWM_TNP_RECTSOURCE
                       | Native.DWM_TNP_OPACITY | Native.DWM_TNP_SOURCECLIENTAREAONLY,
-            opacity = 255,
+            opacity = opacity,
             fSourceClientAreaOnly = false,
             fVisible = visible,
         };
@@ -86,8 +89,18 @@ internal sealed class DwmThumbnails : IDisposable
         Native.DwmUpdateThumbnailProperties(entry.Thumbnail, ref props);
         entry.Applied = true;
         entry.LastVisible = visible;
+        entry.LastOpacity = opacity;
         entry.LastDest = dest;
         entry.LastSource = source;
+    }
+
+    /// <summary>要素とその親（このウィンドウまで）の不透明度を掛け合わせたもの。</summary>
+    private double EffectiveOpacity(FrameworkElement element)
+    {
+        double opacity = 1;
+        for (DependencyObject? d = element; d is not null && d != _window; d = VisualTreeHelper.GetParent(d))
+            if (d is UIElement e) opacity *= e.Opacity;
+        return Math.Clamp(opacity, 0, 1);
     }
 
     private static bool SameRect(Native.RECT a, Native.RECT b) =>

@@ -3,12 +3,49 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:ShareWinSelector"
         xmlns:controls="clr-namespace:ShareWinSelector.Controls"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         Title="ShareWinSelector" Width="1000" Height="660" MinWidth="300" MinHeight="260"
         Icon="Assets/app.ico"
         Background="{StaticResource BrandWindowBackgroundBrush}">
     <Window.Resources>
         <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+        <!-- ほかのモニターにあるウィンドウ（相手には見えていない）の薄さ -->
+        <sys:Double x:Key="OtherMonitorOpacity">0.45</sys:Double>
+        <Style x:Key="OtherMonitorDimRowStyle" TargetType="DockPanel">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding OnSharedMonitor}" Value="False">
+                    <Setter Property="Opacity" Value="{StaticResource OtherMonitorOpacity}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="OtherMonitorDimChipStyle" TargetType="Border">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding OnSharedMonitor}" Value="False">
+                    <Setter Property="Opacity" Value="{StaticResource OtherMonitorOpacity}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- モニターごとの区切り線「── DISPLAY2 ──」。共有するモニターのまとまり（一番上）には出さない -->
+        <DataTemplate x:Key="MonitorGroupHeaderTemplate">
+            <Grid x:Name="Root" Margin="0,8,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Border Height="1" Background="{StaticResource BrandBorderBrush}" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding Name.Label}" Margin="10,0" FontSize="11"
+                           Foreground="{StaticResource BrandSubtleTextBrush}" VerticalAlignment="Center"/>
+                <Border Grid.Column="2" Height="1" Background="{StaticResource BrandBorderBrush}" VerticalAlignment="Center"/>
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Name.IsShared}" Value="True">
+                    <Setter TargetName="Root" Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
 
         <!-- ヘッダーのアイコンボタン -->
         <!-- Fluent テーマのスタイルを継承しないとライト用の古い見た目になる -->
@@ -54,6 +91,12 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <!-- ほかのモニターにあるウィンドウは薄く（DWM のサムネイルも DwmThumbnails が同じ薄さにする） -->
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding OnSharedMonitor}" Value="False">
+                    <Setter Property="Opacity" Value="{StaticResource OtherMonitorOpacity}"/>
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <!-- 行ごとの「クロップ」: 量が未保存のアプリでは押せない（カーソルを乗せると作り方を出す） -->
@@ -114,7 +157,8 @@
         <!-- 共有中ウィンドウのチップ（コンパクト表示） -->
         <DataTemplate x:Key="ChipTemplate" DataType="{x:Type local:WindowItem}">
             <Border Background="#FF14304A" BorderBrush="{StaticResource BrandCyanBrush}" BorderThickness="1"
-                    CornerRadius="12" Padding="10,3,4,3" Margin="0,0,6,6" ToolTip="{Binding Display}">
+                    CornerRadius="12" Padding="10,3,4,3" Margin="0,0,6,6" ToolTip="{Binding Display}"
+                    Style="{StaticResource OtherMonitorDimChipStyle}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding Title}" MaxWidth="180" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                     <Button Content="&#xE8A7;" FontFamily="{StaticResource IconFont}" FontSize="10" Padding="4" Margin="6,0,0,0"
@@ -206,10 +250,14 @@
 
                     <Grid>
                         <ListBox x:Name="WindowList" Background="Transparent" BorderThickness="0"
-                                 HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                 HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 VirtualizingPanel.IsVirtualizingWhenGrouping="False">
+                            <ListBox.GroupStyle>
+                                <GroupStyle HeaderTemplate="{StaticResource MonitorGroupHeaderTemplate}"/>
+                            </ListBox.GroupStyle>
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <DockPanel>
+                                    <DockPanel Style="{StaticResource OtherMonitorDimRowStyle}">
                                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="12,0,0,0"
                                                     Visibility="{Binding CropUiVisible, Converter={StaticResource BoolToVisibility}}">
                                             <CheckBox IsChecked="{Binding CropEnabled, Mode=TwoWay}" MinHeight="0" FontSize="12"
@@ -240,6 +288,10 @@
                         <ScrollViewer x:Name="ThumbScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False"
                                       ScrollChanged="ThumbScroll_ScrollChanged">
                             <ItemsControl x:Name="ThumbList" ItemTemplate="{StaticResource ThumbnailTemplate}">
+                                <!-- モニターごとのまとまりは縦に積み（GroupStyle の既定）、まとまりの中のカードは横に並べて折り返す -->
+                                <ItemsControl.GroupStyle>
+                                    <GroupStyle HeaderTemplate="{StaticResource MonitorGroupHeaderTemplate}"/>
+                                </ItemsControl.GroupStyle>
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <WrapPanel/>
@@ -356,19 +408,21 @@
 
         <!-- コンパクト表示 -->
         <DockPanel x:Name="CompactView" Grid.Row="1" Visibility="Collapsed">
-            <Button x:Name="CompactSelectButton" DockPanel.Dock="Bottom" HorizontalAlignment="Stretch" Margin="0,10,0,0"
-                    Padding="12,8" Background="{StaticResource BrandBlueBrush}" Foreground="White" Click="CompactSelect_Click"
-                    ToolTip="{Binding [Toolbar_SelectTip], Source={x:Static local:Loc.Instance}}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="&#xE7C9;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBlock Text="{Binding [Toolbar_Select], Source={x:Static local:Loc.Instance}}"/>
-                </StackPanel>
-            </Button>
-            <!-- 通常表示の「上をクロップ」と同じもの（連動） -->
-            <CheckBox x:Name="CompactCropModeCheck" DockPanel.Dock="Bottom" Margin="0,8,0,0"
-                      Checked="CropModeCheck_Changed" Unchecked="CropModeCheck_Changed"
-                      Content="{Binding [Crop_Mode], Source={x:Static local:Loc.Instance}}"
-                      ToolTip="{Binding [Crop_ModeTip], Source={x:Static local:Loc.Instance}}"/>
+            <!-- 一番下の 1 行: 左に「上をクロップ」（通常表示のものと連動）、右の残り幅いっぱいに「クリックで選択」 -->
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                <CheckBox x:Name="CompactCropModeCheck" DockPanel.Dock="Left" Margin="0,0,10,0" VerticalAlignment="Center"
+                          Checked="CropModeCheck_Changed" Unchecked="CropModeCheck_Changed"
+                          Content="{Binding [Crop_Mode], Source={x:Static local:Loc.Instance}}"
+                          ToolTip="{Binding [Crop_ModeTip], Source={x:Static local:Loc.Instance}}"/>
+                <Button x:Name="CompactSelectButton" HorizontalAlignment="Stretch"
+                        Padding="12,8" Background="{StaticResource BrandBlueBrush}" Foreground="White" Click="CompactSelect_Click"
+                        ToolTip="{Binding [Toolbar_SelectTip], Source={x:Static local:Loc.Instance}}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE7C9;" FontFamily="{StaticResource IconFont}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="{Binding [Toolbar_Select], Source={x:Static local:Loc.Instance}}"/>
+                    </StackPanel>
+                </Button>
+            </DockPanel>
             <Border DockPanel.Dock="Top" Style="{StaticResource CardStyle}" Padding="8" Margin="0,0,0,10">
                 <Grid Height="140">
                     <Border x:Name="CompactPreviewHost" CornerRadius="6" Background="#FF05070F"/>
@@ -383,6 +437,8 @@
             </Border>
             <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- 共有するモニターの切り替え（モニターの絵に番号。2 枚以上のときだけ、最大 4 つ。中身はコードで作る） -->
+                    <StackPanel x:Name="CompactMonitorPanel" Orientation="Horizontal" Margin="0,0,4,0"/>
                     <Button x:Name="CompactBringAllButton" Content="&#xE8A7;" FontFamily="{StaticResource IconFont}" FontSize="12"
                             Padding="6,3" MinHeight="0" MinWidth="0" Margin="0,0,4,0" Click="BringAllToFront_Click"
                             ToolTip="{Binding [BringAllToFrontTip], Source={x:Static local:Loc.Instance}}"/>
@@ -408,6 +464,7 @@
             </StackPanel>
             <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
                 <ItemsControl x:Name="SharedChips" ItemTemplate="{StaticResource ChipTemplate}">
+                    <!-- コンパクトは区切り線なし（うるさくなるので）。並び順と薄さだけで分ける -->
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel/>

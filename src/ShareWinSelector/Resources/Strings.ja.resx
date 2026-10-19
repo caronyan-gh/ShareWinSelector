@@ -46,7 +46,13 @@
     <value>ツールチップを表示</value>
   </data>
   <data name="BringAllToFrontTip" xml:space="preserve">
-    <value>共有中のウィンドウをまとめて最前面に（重なり順はそのまま）</value>
+    <value>共有するモニターにある共有中のウィンドウを、まとめて最前面に（重なり順はそのまま）</value>
+  </data>
+  <data name="Overlay_OtherMonitorTag" xml:space="preserve">
+    <value>選択中（相手には見えていません）</value>
+  </data>
+  <data name="Compact_MonitorTip" xml:space="preserve">
+    <value>{0} を共有する</value>
   </data>
   <data name="Undo_Removed" xml:space="preserve">
     <value>全部外しました。</value>

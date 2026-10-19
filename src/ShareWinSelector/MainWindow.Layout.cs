@@ -43,9 +43,14 @@ public partial class MainWindow
         _applyingSettings = false;
         ShowVersion();
 
-        // 共有中のウィンドウだけを並べるチップ（チェックが変わると自動で出入りする）
-        var shared = new ListCollectionView(_items) { Filter = o => ((WindowItem)o).IsChecked, IsLiveFiltering = true };
+        // 共有中のウィンドウだけを並べるチップ（チェックが変わると自動で出入りする）。
+        // 一覧と同じく、共有するモニターのものが先、ほかのモニターのものは後ろで薄く（モニターをまたぐと並び替わる）。
+        // コンパクトは狭いので区切り線は付けない
+        var shared = new ListCollectionView(_items) { Filter = o => ((WindowItem)o).IsChecked, IsLiveFiltering = true, IsLiveSorting = true };
         shared.LiveFilteringProperties.Add(nameof(WindowItem.IsChecked));
+        shared.SortDescriptions.Add(new SortDescription(nameof(WindowItem.GroupOrder), ListSortDirection.Ascending));
+        shared.SortDescriptions.Add(new SortDescription(nameof(WindowItem.Order), ListSortDirection.Ascending));
+        shared.LiveSortingProperties.Add(nameof(WindowItem.GroupOrder));
         SharedChips.ItemsSource = shared;
 
         SourceInitialized += (_, _) =>
@@ -225,19 +230,42 @@ public partial class MainWindow
     /// <summary>
     /// 共有中のウィンドウを、お互いの重なり順はそのままで、まとめて一番手前に出す（最小化しているものはそのまま）。
     /// 相手に見えない所でメールを見たあと、共有している画面の状態に戻す用。
+    /// 共有するモニターにあるものだけ（ほかのモニターに動かしたものは相手に見えていないので出さない）。
     /// </summary>
     private void BringSharedToFront()
     {
         var shared = _selected.Values
-            .Where(id => id.IsAlive() && !IsWaitingForReview(id.Handle) && !Native.IsIconic(id.Handle))
+            .Where(id => id.IsAlive() && !IsWaitingForReview(id.Handle) && !Native.IsIconic(id.Handle) && IsOnSharedMonitor(id.Handle))
             .Select(id => id.Handle).ToHashSet();
         if (shared.Count == 0) return;
         // 今の重なり順（手前 → 奥）で並べ、奥のものから順に一番手前へ出す＝最後に元の一番手前が一番上
         var order = WindowEnumerator.GetVisibleWindowsTopDown().Select(w => w.Handle).Where(shared.Contains).ToList();
         if (order.Count == 0) return;
         order.Reverse();
+        // 出し終わって元の並びに戻るまで、合成の重なり順を止める（途中の並びが相手に映ってちらつかないように）
+        if (_compositor is { } compositor)
+        {
+            compositor.HoldOrder = true;
+            _releaseOrderTimer.Stop();
+            _releaseOrderTimer.Start();
+        }
         // 1 つずつ前面に出す（重なり順を変えるだけだと、ほかのアプリのウィンドウは前に来ないことがある）
         foreach (var hwnd in order) Native.ForceToForeground(hwnd);
+    }
+
+    // まとめて最前面のあと、重なり順の止めを外すまでの間（ウィンドウの入れ替えが落ち着くのを待つ）
+    private System.Windows.Threading.DispatcherTimer? _releaseOrderTimerField;
+    private System.Windows.Threading.DispatcherTimer _releaseOrderTimer => _releaseOrderTimerField ??= CreateReleaseOrderTimer();
+
+    private System.Windows.Threading.DispatcherTimer CreateReleaseOrderTimer()
+    {
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (_compositor is not null) _compositor.HoldOrder = false;
+        };
+        return timer;
     }
 
     // --- デスクトップ ---
@@ -273,6 +301,74 @@ public partial class MainWindow
         VersionText.ToolTip = FullVersion;
     }
 
+    // --- コンパクト表示のモニター切り替え ---
+
+    // 1 つのモニター用のボタンは最大これだけ（5 枚目以降は通常表示のモニター欄で選ぶ）
+    private const int MaxCompactMonitorButtons = 4;
+    private readonly List<(MonitorInfo Monitor, System.Windows.Controls.Primitives.ToggleButton Button)> _compactMonitorButtons = [];
+
+    /// <summary>Windows のモニター番号（DISPLAY2 なら 2）。分からなければ大きな数。</summary>
+    private static int MonitorNumber(MonitorInfo m) => MonitorNumber(m.DeviceName);
+
+    private static int MonitorNumber(string deviceName)
+    {
+        var digits = new string(deviceName.Reverse().TakeWhile(char.IsDigit).Reverse().ToArray());
+        return int.TryParse(digits, out int n) ? n : int.MaxValue;
+    }
+
+    /// <summary>
+    /// コンパクト表示の「まとめて最前面」の左に、モニターの絵に番号を入れたボタンを並べる（押すとそのモニターを共有する）。
+    /// モニターが 1 枚なら出さない。番号は Windows の番号（DISPLAY1 など）で、小さい順に最大 4 つ。
+    /// </summary>
+    private void RebuildCompactMonitorButtons(IReadOnlyList<MonitorInfo> monitors)
+    {
+        CompactMonitorPanel.Children.Clear();
+        _compactMonitorButtons.Clear();
+        if (monitors.Count < 2) return;
+        var iconFont = (FontFamily)FindResource("IconFont");
+        foreach (var m in monitors.OrderBy(MonitorNumber).Take(MaxCompactMonitorButtons))
+        {
+            int number = MonitorNumber(m);
+            // モニターの記号の画面部分に、小さな番号を重ねる（画像を使わないので拡大率が変わってもにじまない）
+            var face = new Grid();
+            face.Children.Add(new TextBlock { Text = "", FontFamily = iconFont, FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center });
+            face.Children.Add(new TextBlock
+            {
+                Text = number == int.MaxValue ? "?" : number.ToString(),
+                FontSize = 9,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, -1, 0, 0),
+            });
+            var button = new System.Windows.Controls.Primitives.ToggleButton
+            {
+                Content = face,
+                Padding = new Thickness(4, 1, 4, 1),
+                MinWidth = 0,
+                MinHeight = 0,
+                Margin = new Thickness(0, 0, 2, 0),
+                ToolTip = Loc.F("Compact_MonitorTip", m.Display),
+            };
+            var monitor = m;
+            button.Click += (_, _) =>
+            {
+                MonitorCombo.SelectedItem = MonitorCombo.Items.Cast<MonitorInfo>().FirstOrDefault(x => x.DeviceName == monitor.DeviceName);
+                SyncCompactMonitorButtons(); // 押した拍子に外れた見た目を戻す（今のモニターをもう一度押したときなど）
+            };
+            CompactMonitorPanel.Children.Add(button);
+            _compactMonitorButtons.Add((m, button));
+        }
+        SyncCompactMonitorButtons();
+    }
+
+    /// <summary>今共有しているモニターのボタンだけ、押された見た目にする。</summary>
+    private void SyncCompactMonitorButtons()
+    {
+        string? current = CurrentMonitor?.DeviceName;
+        foreach (var (m, button) in _compactMonitorButtons) button.IsChecked = m.DeviceName == current;
+    }
+
     // --- 共有するモニターのウィンドウだけ表示 ---
 
     private void MonitorOnlyButton_Changed(object sender, RoutedEventArgs e)
@@ -280,7 +376,9 @@ public partial class MainWindow
         if (_applyingSettings || !IsInitialized) return;
         App.Settings.MonitorOnly = MonitorOnlyButton.IsChecked == true;
         App.Settings.Save();
-        RefreshList();
+        // 絞り込みは見え方の側でやっている（行は消さないので、並び順も保たれる）
+        _windowView.Refresh();
+        _thumbnails?.UpdateAll();
     }
 
     // --- 一覧 ⇔ サムネイル ---

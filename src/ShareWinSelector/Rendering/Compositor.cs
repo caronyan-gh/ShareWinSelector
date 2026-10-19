@@ -82,6 +82,7 @@ internal sealed class Compositor : IDisposable
     private static readonly TimeSpan IdleRedrawInterval = TimeSpan.FromMilliseconds(250);
     // 設定やサイズの変更など、次のフレームで必ず描き直してほしいとき true
     private volatile bool _dirty = true;
+    private volatile bool _holdOrder;
     // 前回描いた配置（描画スレッド専用）
     private List<(IntPtr Hwnd, Native.RECT Bounds, int CropPx)> _lastOrder = [];
 
@@ -356,6 +357,17 @@ internal sealed class Compositor : IDisposable
         }
     }
 
+    /// <summary>
+    /// 重なり順を今のまま止めておく。まとめて最前面では 1 つずつ手前へ出すので、途中の一瞬だけ共有中のウィンドウ同士の
+    /// 重なりが変わる（終わると元の並びに戻る）。その途中の並びが相手に映ってちらつかないように、出している間だけ止める。
+    /// 中身（各ウィンドウの絵）はその間も更新する。
+    /// </summary>
+    public bool HoldOrder
+    {
+        get => _holdOrder;
+        set { _holdOrder = value; _dirty = true; }
+    }
+
     private void RenderLoop()
     {
         var frameTime = TimeSpan.FromSeconds(1.0 / TargetFps);
@@ -369,7 +381,8 @@ internal sealed class Compositor : IDisposable
             {
                 // 各ウィンドウの最新フレームを受け取る（このときだけコピーするので、30 回/秒より多くは写さない）
                 bool fresh = PullFrames();
-                var order = GetDrawOrder();
+                // 重なり順を止めている間（まとめて最前面の最中）は、途中の並びを描かないよう前回の並びのまま描く
+                var order = _holdOrder && _lastOrder.Count > 0 ? _lastOrder : GetDrawOrder();
                 // 中身も配置も設定も変わっていなければ描き直さない（GPU を休ませる）
                 if (fresh || _dirty || !SameOrder(order, _lastOrder) || start - lastRender >= IdleRedrawInterval)
                 {

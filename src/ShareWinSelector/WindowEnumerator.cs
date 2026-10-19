@@ -48,9 +48,12 @@ internal static class WindowEnumerator
     public static List<WindowInfo> GetCapturableWindows()
     {
         var result = new List<WindowInfo>();
+        // どのモニターにも重なっていないもの（画面の外に置かれた重ね描きツールの待機中の膜など）は、どのモニターを共有しても映らないので出さない
+        var monitors = MonitorEnumerator.GetMonitors();
         Native.EnumWindows((hWnd, _) =>
         {
             if (!IsCapturable(hWnd)) return true;
+            if (!monitors.Any(m => IsOnMonitor(hWnd, m.Bounds))) return true;
             var identity = WindowIdentity.Of(hWnd);
             result.Add(new WindowInfo(hWnd, Native.GetTitle(hWnd), GetProcessName(identity.ProcessId)) { Identity = identity });
             return true;
@@ -65,6 +68,8 @@ internal static class WindowEnumerator
         if (Native.GetWindow(hWnd, Native.GW_OWNER) != IntPtr.Zero) return false;
         long exStyle = Native.GetWindowLongPtr(hWnd, Native.GWL_EXSTYLE);
         if ((exStyle & Native.WS_EX_TOOLWINDOW) != 0) return false;
+        // クリックが素通りするもの（画面に書き込むツールの膜などの重ね描き）は操作するウィンドウではないので出さない
+        if ((exStyle & Native.WS_EX_TRANSPARENT) != 0) return false;
         if (Native.IsCloaked(hWnd)) return false;
         if (string.IsNullOrWhiteSpace(Native.GetTitle(hWnd))) return false;
         Native.GetWindowThreadProcessId(hWnd, out uint pid);
