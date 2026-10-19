@@ -356,7 +356,7 @@ public partial class MainWindow : Window
         };
         _compositor.SourceClosed += hwnd => Dispatcher.BeginInvoke(() => OnSourceClosed(hwnd));
         _compositor.RemoteMode = monitor.IsRemote;
-        _compositor.FrameSink = _remoteChild is { } child ? child.SubmitFrame : null;
+        _compositor.FrameSink = _remoteChild is { } child && _remoteChildConnected ? child.SubmitFrame : null;
         _compositor.DeviceLost += () => Dispatcher.BeginInvoke(RecoverFromDeviceLost);
         ApplyBackground(); // デバイスを作り直したときも背景を載せ直す
     }
@@ -612,24 +612,35 @@ public partial class MainWindow : Window
     /// </summary>
     private void UncheckAll_Click(object sender, RoutedEventArgs e)
     {
-        // 元に戻す用に、相手に見えていたもの（確認待ちでないもの）とクロップ量を覚えておく
+        // 子のウィンドウ（R の行）を共有していれば、子にも「全部外す」を 1 通で頼む（戻す分は子が覚える）
+        bool remote = _remoteParent is not null && _items.Any(i => i.IsRemote && i.IsChecked);
+        if (remote) _remoteParent!.RequestUncheckAll();
+        var snapshot = UncheckAllCore();
+        if (snapshot.Count > 0 || remote) ShowUndo(snapshot, remote);
+    }
+
+    /// <summary>この PC の共有を全部外す。元に戻す用に、相手に見えていたもの（確認待ちでないもの）とクロップ量を返す。</summary>
+    private List<(WindowIdentity Identity, double Crop)> UncheckAllCore()
+    {
         var snapshot = _selected.Values.Where(id => !IsWaitingForReview(id.Handle))
             .Select(id => (Identity: id, Crop: GetCropDip(id.Handle))).ToList();
         foreach (var hwnd in _selected.Keys.ToList()) RemoveSelected(hwnd);
         _compositor?.RemoveAll();
-        foreach (var remote in _items.Where(i => i.IsRemote && i.IsChecked)) _remoteParent?.RequestShare(remote.RemoteId, false);
         SetCheckedSilently(_items, false);
         UpdateStatus();
-        if (snapshot.Count > 0) ShowUndo(snapshot);
+        return snapshot;
     }
 
     private static readonly TimeSpan UndoDuration = TimeSpan.FromSeconds(6);
     private readonly DispatcherTimer _undoTimer = new() { Interval = UndoDuration };
     private List<(WindowIdentity Identity, double Crop)> _undoSnapshot = [];
+    // 「全部外す」で子にも外してもらったか（元に戻すときに、子にも戻してもらう）
+    private bool _undoRemote;
 
-    private void ShowUndo(List<(WindowIdentity Identity, double Crop)> snapshot)
+    private void ShowUndo(List<(WindowIdentity Identity, double Crop)> snapshot, bool remote = false)
     {
         _undoSnapshot = snapshot;
+        _undoRemote = remote;
         UndoBar.Visibility = CompactUndoBar.Visibility = Visibility.Visible;
         _undoTimer.Stop();
         _undoTimer.Start();
@@ -639,6 +650,7 @@ public partial class MainWindow : Window
     {
         _undoTimer.Stop();
         _undoSnapshot = [];
+        _undoRemote = false;
         UndoBar.Visibility = CompactUndoBar.Visibility = Visibility.Collapsed;
     }
 
@@ -646,7 +658,15 @@ public partial class MainWindow : Window
     private void Undo_Click(object sender, RoutedEventArgs e)
     {
         var snapshot = _undoSnapshot;
+        bool remote = _undoRemote;
         HideUndo();
+        if (remote) _remoteParent?.RequestRestoreAll();
+        RestoreSharing(snapshot);
+    }
+
+    /// <summary>全部外したものを、同じクロップ量で、確認なしでそのまま共有し直す（閉じたものは飛ばす）。</summary>
+    private void RestoreSharing(List<(WindowIdentity Identity, double Crop)> snapshot)
+    {
         foreach (var (identity, crop) in snapshot)
         {
             if (!identity.IsAlive() || _selected.ContainsKey(identity.Handle)) continue;
@@ -721,7 +741,7 @@ public partial class MainWindow : Window
         if (_suppressCheckHandler || sender is not WindowItem item) return;
         if (e.PropertyName == nameof(WindowItem.CropEnabled))
         {
-            OnCropEnabledChanged(item);
+            if (!item.IsRemote) OnCropEnabledChanged(item);
             return;
         }
         if (e.PropertyName != nameof(WindowItem.IsChecked)) return;
@@ -829,7 +849,8 @@ public partial class MainWindow : Window
         CompactStatusText.Text = summary;
         // 共有中が無いときは「まとめて最前面」「全部外す」を押せない
         BringAllButton.IsEnabled = CompactBringAllButton.IsEnabled = count > 0;
-        UncheckAllButton.IsEnabled = CompactUncheckAllButton.IsEnabled = _selected.Count > 0;
+        // 子のウィンドウ（親の一覧の R の行）を共有中のときも押せる
+        UncheckAllButton.IsEnabled = CompactUncheckAllButton.IsEnabled = _selected.Count > 0 || _items.Any(i => i.IsRemote && i.IsChecked);
         // 何か選び直したら「元に戻す」は引っ込める（戻すと選び直した分とぶつかる）
         if (_selected.Count > 0 && _undoSnapshot.Count > 0) HideUndo();
         PublishRemoteWindowList();
@@ -849,6 +870,9 @@ public partial class MainWindow : Window
         App.Settings.Save();
     }
 
+    // 最後に選んでいたこの PC のモニター（R を選んでいる間の、膜とツールバーの置き場所）
+    private string? _lastLocalMonitor;
+
     private void ApplyMonitor(MonitorInfo monitor)
     {
         if (monitor.IsRemote)
@@ -862,8 +886,18 @@ public partial class MainWindow : Window
             }
             _output?.SetCanvasSize(monitor.Bounds.Width, monitor.Bounds.Height);
             if (_overlay is not null) _overlay.Muted = true;
+            // 膜とツールバーは、最後に選んでいたこの PC のモニターに置く。抜かれていればメインモニターへ
+            // （R を選んでいる間にモニターを抜き差ししても、無くなったモニターの位置に残らないように）
+            var local = MonitorEnumerator.GetMonitors();
+            if ((local.FirstOrDefault(m => m.DeviceName == _lastLocalMonitor) ?? local.FirstOrDefault(m => m.IsPrimary) ?? local.FirstOrDefault()) is { } place)
+            {
+                _overlay?.SetMonitor(place.Bounds);
+                _toolbar?.SetMonitor(place.Bounds);
+                UpdateOtherOverlays(place);
+            }
             return;
         }
+        _lastLocalMonitor = monitor.DeviceName;
         if (_overlay is not null) _overlay.Muted = false;
         if (_compositor is not null) _compositor.RemoteMode = false;
         if (_compositor is not null) _compositor.Canvas = monitor.Bounds;

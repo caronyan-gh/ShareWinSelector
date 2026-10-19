@@ -73,38 +73,69 @@ public partial class MainWindow
         ? (App.Settings.RemotePairedParent is null ? Loc.T("Remote_PairedParentNone") : Loc.T("Remote_PairedParentYes"))
         : Loc.F("Remote_PairedChildren", App.Settings.RemotePairedChildren.Count);
 
+    /// <summary>親: この子（公開鍵の指紋）をペアリングで覚えているか（受け取る側のスレッドから呼ばれる）。</summary>
+    private bool IsKnownChild(string thumbprint)
+    {
+        try { return Dispatcher.Invoke(() => App.Settings.RemotePairedChildren.ContainsKey(thumbprint)); }
+        catch { return false; } // 終了中など
+    }
+
     /// <summary>
-    /// 親: 子をつないでよいか（受け取る側のスレッドから呼ばれる）。許可済みの子ならすぐ許可。
-    /// 初めての子なら、ペアリングの番号を出した窓で聞き、許可されたら覚える。
+    /// 親: 子をつないでよいか（受け取る側のスレッドから呼ばれる。親と子のどちらかが相手を覚えていないときだけ）。
+    /// ペアリングの番号を出した窓で聞く（覚えるのは、子の側の許可もそろってから＝SessionStarted）。
+    /// 子が切れたり時間が過ぎたりしたら cancel で窓を閉じる。
     /// </summary>
-    private Task<bool> ApproveChild(string thumbprint, string name, string code)
+    private Task<bool> ApproveChild(string thumbprint, string name, string code, CancellationToken cancel)
     {
         return Dispatcher.InvokeAsync(() =>
         {
-            if (App.Settings.RemotePairedChildren.ContainsKey(thumbprint))
-            {
-                App.Settings.RemotePairedChildren[thumbprint] = name;
-                return Task.FromResult(true);
-            }
+            if (cancel.IsCancellationRequested) return Task.FromResult(false);
+            var parent = _remoteParent;
             SetRemoteStatus(Loc.F("Remote_StatusParentWaiting", name, code));
-            var window = new RemotePairWindow(name, code);
+            var window = new RemotePairWindow(Loc.F("Pair_Message", name), code, cancel);
+            window.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_remoteParent, parent) && _remoteMonitor is null)
+                    SetRemoteStatus(Loc.F("Remote_StatusListening", App.Settings.RemotePort));
+            };
             window.Show();
             window.Activate();
-            return window.Result.ContinueWith(t =>
-            {
-                bool allowed = t.Result;
-                Dispatcher.BeginInvoke(() =>
-                {
-                    if (allowed)
-                    {
-                        App.Settings.RemotePairedChildren[thumbprint] = name;
-                        App.Settings.Save();
-                        Log.Info($"リモート連携: 子「{name}」とペアリングしました");
-                    }
-                    if (_remoteParent is not null) SetRemoteStatus(Loc.F("Remote_StatusListening", App.Settings.RemotePort));
-                });
-                return allowed;
-            });
+            return window.Result;
+        }).Task.Unwrap();
+    }
+
+    // 親: 今の子の接続の番号（0 = つながっていない）。古い接続から遅れて届いた知らせは、これと比べて捨てる
+    private long _remoteSessionId;
+
+    /// <summary>
+    /// 親: 子と両方の許可がそろって、今の子になった。前の子の分が残っていれば片付ける。
+    /// 子を覚える（次からはすぐ許可する）。名前が変わっていれば直す。
+    /// </summary>
+    private void OnSessionStarted(RemoteParent parent, long session, string thumbprint, string name)
+    {
+        if (!ReferenceEquals(_remoteParent, parent)) return;
+        if (_remoteSessionId != 0 && _remoteSessionId != session) DropRemoteMonitor(_remoteSessionId);
+        _remoteSessionId = session;
+        bool known = App.Settings.RemotePairedChildren.TryGetValue(thumbprint, out var oldName);
+        if (known && oldName == name) return;
+        App.Settings.RemotePairedChildren[thumbprint] = name;
+        App.Settings.Save();
+        if (!known) Log.Info($"リモート連携: 子「{name}」とペアリングしました");
+    }
+
+    /// <summary>
+    /// 子: 初めての親につないでよいか（送る側のスレッドから呼ばれる）。ペアリングの番号を出した窓で聞く。
+    /// 親が切れたり時間が過ぎたりしたら cancel で窓を閉じる。
+    /// </summary>
+    private Task<bool> ConfirmParent(string parentName, string code, CancellationToken cancel)
+    {
+        return Dispatcher.InvokeAsync(() =>
+        {
+            if (cancel.IsCancellationRequested) return Task.FromResult(false);
+            var window = new RemotePairWindow(Loc.F("Pair_MessageChild", parentName), code, cancel);
+            window.Show();
+            window.Activate();
+            return window.Result;
         }).Task.Unwrap();
     }
 
@@ -113,16 +144,14 @@ public partial class MainWindow
         int port = App.Settings.RemotePort;
         try
         {
-            var parent = new RemoteParent(port, LocalName, _remoteIdentity!, ApproveChild);
-            parent.ChildConnected += (name, w, h) => Dispatcher.BeginInvoke(() => OnChildConnected(parent, name, w, h));
-            parent.ChildDisconnected += () => Dispatcher.BeginInvoke(() => OnChildDisconnected(parent));
-            parent.FrameReceived += (pixels, w, h) => OnRemoteFrame(parent, pixels, w, h);
-            parent.WindowListReceived += windows => Dispatcher.BeginInvoke(() => UpdateRemoteItems(parent, windows));
-            parent.ThumbnailReceived += (id, image) => Dispatcher.BeginInvoke(() =>
-            {
-                if (!ReferenceEquals(_remoteParent, parent)) return;
-                if (_items.FirstOrDefault(i => i.IsRemote && i.RemoteId == id) is { } item) item.RemoteThumbnail = image;
-            });
+            var parent = new RemoteParent(port, LocalName, _remoteIdentity!, IsKnownChild, ApproveChild);
+            // どの知らせにも接続の番号が付いている（古い接続から遅れて届いたものは捨てる）
+            parent.SessionStarted += (session, thumbprint, name) => Dispatcher.BeginInvoke(() => OnSessionStarted(parent, session, thumbprint, name));
+            parent.ChildConnected += (session, name, w, h) => Dispatcher.BeginInvoke(() => OnChildConnected(parent, session, name, w, h));
+            parent.ChildDisconnected += session => Dispatcher.BeginInvoke(() => OnChildDisconnected(parent, session));
+            parent.FrameReceived += (session, pixels, w, h) => OnRemoteFrame(parent, session, pixels, w, h);
+            parent.WindowListReceived += (session, windows) => QueueRemoteWindowList(parent, session, windows);
+            parent.ThumbnailReceived += (session, id, image) => QueueRemoteThumbnail(parent, session, id, image);
             // サムネイル表示の間だけ、子にサムネイルを送ってもらう
             parent.SetThumbnailsWanted(ThumbViewButton.IsChecked == true);
             _remoteParent = parent;
@@ -156,10 +185,13 @@ public partial class MainWindow
             SetRemoteStatus(Loc.T("Remote_StatusNoParent"));
             return;
         }
-        var child = new RemoteChild(address, App.Settings.RemotePort, LocalName, _remoteIdentity!, App.Settings.RemotePairedParent);
+        var child = new RemoteChild(address, App.Settings.RemotePort, LocalName, _remoteIdentity!, App.Settings.RemotePairedParent, ConfirmParent);
         child.StateChanged += (state, detail) => Dispatcher.BeginInvoke(() =>
         {
             if (!ReferenceEquals(_remoteChild, child)) return;
+            // 合成した絵を親へ渡すのは、つながっている間だけ（渡す先を付けると、変わっていなくても 1 枚すぐ渡る）
+            _remoteChildConnected = state == RemoteChildState.Connected;
+            if (_compositor is not null) _compositor.FrameSink = _remoteChildConnected ? child.SubmitFrame : null;
             SetRemoteStatus(state switch
             {
                 RemoteChildState.Connected => Loc.F("Remote_StatusConnected", detail),
@@ -177,22 +209,39 @@ public partial class MainWindow
             var item = _items.FirstOrDefault(i => !i.IsRemote && (long)i.Handle == id);
             if (item is not null && item.IsChecked != shared) item.IsChecked = shared;
         });
-        // 初めての親に許可されたら、その親を覚える（次からはこの親だけにつなぐ）
+        // 親で「全部外す」「元に戻す」が押されたら、この PC の「全部外す」「元に戻す」と同じことをする（戻す分はこちらで覚える）
+        child.UncheckAllRequested += () => Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(_remoteChild, child)) return;
+            _parentUndoSnapshot = UncheckAllCore();
+        });
+        child.RestoreAllRequested += () => Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(_remoteChild, child)) return;
+            var snapshot = _parentUndoSnapshot;
+            _parentUndoSnapshot = [];
+            RestoreSharing(snapshot);
+        });
+        // 初めての親と両方の許可がそろったら、その親を覚える（次からはこの親だけにつなぐ）
         child.ParentPaired += thumbprint => Dispatcher.BeginInvoke(() =>
         {
+            if (!ReferenceEquals(_remoteChild, child)) return;
             App.Settings.RemotePairedParent = thumbprint;
             App.Settings.Save();
         });
         _remoteChild = child;
-        // 合成した絵を親へ渡す（変わったときだけ）
-        if (_compositor is not null) _compositor.FrameSink = child.SubmitFrame;
+        _remoteChildConnected = false;
         SetChildOutputOffScreen(true);
         PublishRemoteWindowList();
         Log.Info($"リモート連携: 子として {address}:{App.Settings.RemotePort} へ");
     }
 
+    // 子: 親とつながっているか（合成した絵を渡すのは、その間だけ）
+    private bool _remoteChildConnected;
+
     private void StopRemote()
     {
+        _remoteChildConnected = false;
         if (_compositor is not null) _compositor.FrameSink = null;
         if (_remoteChild is not null)
         {
@@ -204,15 +253,19 @@ public partial class MainWindow
         {
             _remoteParent.Dispose();
             _remoteParent = null;
-            if (_remoteMonitor is not null) DropRemoteMonitor();
+            DropRemoteMonitor(0);
+            _remoteSessionId = 0;
         }
     }
 
+    // 子: 親の「全部外す」で外したもの（親の「元に戻す」で戻す）
+    private List<(WindowIdentity Identity, double Crop)> _parentUndoSnapshot = [];
+
     // --- 親 ---
 
-    private void OnChildConnected(RemoteParent parent, string name, int width, int height)
+    private void OnChildConnected(RemoteParent parent, long session, string name, int width, int height)
     {
-        if (!ReferenceEquals(_remoteParent, parent)) return;
+        if (!ReferenceEquals(_remoteParent, parent) || session != _remoteSessionId) return;
         _remoteMonitor = new MonitorInfo("REMOTE", new Native.RECT { Left = 0, Top = 0, Right = width, Bottom = height }, false)
         {
             IsRemote = true,
@@ -222,18 +275,19 @@ public partial class MainWindow
         SetRemoteStatus(Loc.F("Remote_StatusChildConnected", name));
     }
 
-    private void OnChildDisconnected(RemoteParent parent)
+    private void OnChildDisconnected(RemoteParent parent, long session)
     {
-        if (!ReferenceEquals(_remoteParent, parent)) return;
-        DropRemoteMonitor();
+        if (!ReferenceEquals(_remoteParent, parent) || session != _remoteSessionId) return;
+        DropRemoteMonitor(session);
+        _remoteSessionId = 0;
         SetRemoteStatus(Loc.F("Remote_StatusListening", App.Settings.RemotePort));
     }
 
     /// <summary>子の絵が届いた（受け取る側のスレッド）。合成にそのまま渡し、大きさが変わったら一覧の R も直す。</summary>
-    private void OnRemoteFrame(RemoteParent parent, byte[] pixels, int width, int height)
+    private void OnRemoteFrame(RemoteParent parent, long session, byte[] pixels, int width, int height)
     {
         if (!ReferenceEquals(_remoteParent, parent)) return;
-        _compositor?.SetRemoteFrame(pixels, width, height);
+        _compositor?.SetRemoteFrame(session, pixels, width, height);
         var known = _remoteMonitor;
         if (known is not null && (known.Bounds.Width != width || known.Bounds.Height != height))
             Dispatcher.BeginInvoke(() => OnRemoteSizeChanged(parent, width, height));
@@ -247,11 +301,19 @@ public partial class MainWindow
         RefreshMonitorList();
     }
 
-    /// <summary>子の画面（R）を一覧から外す。共有していたら、この PC のモニターに戻す。</summary>
-    private void DropRemoteMonitor()
+    /// <summary>
+    /// 子の画面（R）を一覧から外す。共有していたら、この PC のモニターに戻す。
+    /// 合成に渡した子の絵は、その接続（session）のものだけ捨てる（0 なら全部。新しい子の絵は消さない）。
+    /// </summary>
+    private void DropRemoteMonitor(long session)
     {
         _remoteMonitor = null;
-        _compositor?.ClearRemoteFrame();
+        _compositor?.ClearRemoteFrame(session);
+        lock (_remoteQueueGate)
+        {
+            _pendingRemoteList = null;
+            _pendingRemoteThumbnails.Clear();
+        }
         RemoveRemoteItems();
         RefreshMonitorList();
     }
@@ -300,6 +362,80 @@ public partial class MainWindow
             gone.PropertyChanged -= OnItemPropertyChanged;
             _items.Remove(gone);
         }
+        // 子のウィンドウの共有の有無で「全部外す」を押せるかが変わる
+        UpdateStatus();
+    }
+
+    // 子から届いた一覧・サムネイルは、UI スレッドへまとめて渡す（届くたびに 1 つずつ頼むと、UI が追いつかないことがある）。
+    // 溜めるのは 1 つの接続の分だけ（別の接続のものが来たら、前の分は捨てる）。サムネイルは数に上限
+    private const int MaxPendingThumbnails = 512;
+    private readonly object _remoteQueueGate = new();
+    private long _pendingRemoteSession;
+    private IReadOnlyList<RemoteWindow>? _pendingRemoteList;
+    private readonly Dictionary<long, System.Windows.Media.ImageSource> _pendingRemoteThumbnails = [];
+    private bool _remoteFlushPosted;
+
+    private void QueueRemoteWindowList(RemoteParent parent, long session, IReadOnlyList<RemoteWindow> windows)
+    {
+        lock (_remoteQueueGate)
+        {
+            SwitchPendingSession(session);
+            _pendingRemoteList = windows;
+        }
+        PostRemoteFlush(parent);
+    }
+
+    private void QueueRemoteThumbnail(RemoteParent parent, long session, long id, System.Windows.Media.ImageSource image)
+    {
+        lock (_remoteQueueGate)
+        {
+            SwitchPendingSession(session);
+            if (_pendingRemoteThumbnails.Count >= MaxPendingThumbnails && !_pendingRemoteThumbnails.ContainsKey(id)) return;
+            _pendingRemoteThumbnails[id] = image;
+        }
+        PostRemoteFlush(parent);
+    }
+
+    /// <summary>溜めている分が別の接続のものなら捨てる（_remoteQueueGate を持って呼ぶ）。</summary>
+    private void SwitchPendingSession(long session)
+    {
+        if (_pendingRemoteSession == session) return;
+        _pendingRemoteSession = session;
+        _pendingRemoteList = null;
+        _pendingRemoteThumbnails.Clear();
+    }
+
+    private void PostRemoteFlush(RemoteParent parent)
+    {
+        lock (_remoteQueueGate)
+        {
+            if (_remoteFlushPosted) return;
+            _remoteFlushPosted = true;
+        }
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => FlushRemoteQueue(parent));
+    }
+
+    private void FlushRemoteQueue(RemoteParent parent)
+    {
+        IReadOnlyList<RemoteWindow>? list;
+        List<KeyValuePair<long, System.Windows.Media.ImageSource>> thumbnails;
+        long session;
+        lock (_remoteQueueGate)
+        {
+            session = _pendingRemoteSession;
+            list = _pendingRemoteList;
+            _pendingRemoteList = null;
+            thumbnails = [.. _pendingRemoteThumbnails];
+            _pendingRemoteThumbnails.Clear();
+            _remoteFlushPosted = false;
+        }
+        // 切れた・替わった接続の分は捨てる（消した子の行を復活させない）
+        if (!ReferenceEquals(_remoteParent, parent) || session != _remoteSessionId) return;
+        if (list is not null) UpdateRemoteItems(parent, list);
+        if (thumbnails.Count == 0) return;
+        var byId = _items.Where(i => i.IsRemote).ToDictionary(i => i.RemoteId);
+        foreach (var (id, image) in thumbnails)
+            if (byId.TryGetValue(id, out var item)) item.RemoteThumbnail = image;
     }
 
     /// <summary>親: 子が切れたら、子のウィンドウの行を全部消す。</summary>
@@ -310,6 +446,7 @@ public partial class MainWindow
             item.PropertyChanged -= OnItemPropertyChanged;
             _items.Remove(item);
         }
+        UpdateStatus();
     }
 
     /// <summary>

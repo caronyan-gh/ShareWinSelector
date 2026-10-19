@@ -129,7 +129,13 @@ internal sealed class OverlayWindow : Window
             }
             if (e.Key == Key.Escape) ExitSelectMode();
         };
-        Loc.Instance.LanguageChanged += () => { _lastSignature = null; Refresh(); };
+        Loc.Instance.LanguageChanged += OnLanguageChanged;
+    }
+
+    private void OnLanguageChanged()
+    {
+        _lastSignature = null;
+        Refresh();
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -160,6 +166,8 @@ internal sealed class OverlayWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _timer.Stop();
+        // 補助のオーバーレイはモニターの抜き差しなどで作り直すので、閉じたものが言語の切り替えを受け取り続けないように
+        Loc.Instance.LanguageChanged -= OnLanguageChanged;
         base.OnClosed(e);
     }
 

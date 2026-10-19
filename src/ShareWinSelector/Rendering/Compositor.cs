@@ -370,7 +370,14 @@ internal sealed class Compositor : IDisposable
     /// 子として動くとき、合成した絵（BGRA の画素・幅・高さ）を渡す先。null なら渡さない。
     /// 絵が変わったときだけ、1 秒あたり 12 コマまで、描画スレッドから呼ぶ。
     /// </summary>
-    public Action<byte[], int, int>? FrameSink { get; set; }
+    /// 渡す先を付けたときは、絵が変わっていなくても次のコマで 1 枚渡す（つないだ直後の親に、すぐ絵が届くように）。
+    /// 渡す先が無い間は、絵を取り出さない（GPU から読み戻す手間をかけない）。
+    public Action<byte[], int, int>? FrameSink
+    {
+        get => _frameSink;
+        set { _frameSink = value; _dirty = true; }
+    }
+    private volatile Action<byte[], int, int>? _frameSink;
 
     /// <summary>親として子の画面を共有しているか（true の間は子の絵だけを描く）。</summary>
     public bool RemoteMode
@@ -379,37 +386,69 @@ internal sealed class Compositor : IDisposable
         set { _remoteMode = value; _dirty = true; }
     }
 
-    /// <summary>子から届いた絵を差し替える（BGRA の画素。受け取る側のスレッドから呼ぶ）。</summary>
-    public unsafe void SetRemoteFrame(byte[] pixels, int width, int height)
+    // 子から届いた最新の絵（GPU へ載せるのは描画スレッドだけ。届いた側のスレッドは置いていくだけ）
+    private readonly object _remoteGate = new();
+    private (byte[] Pixels, int Width, int Height)? _remotePending;
+    private bool _remoteClear;
+    // 置いてある絵・GPU に載っている絵が、どの接続のものか（切れた接続の後始末で、新しい接続の絵を消さないように）
+    private long _remotePendingTag, _remoteBitmapTag;
+    private volatile bool _disposed;
+
+    /// <summary>子から届いた絵を差し替える（tag は接続の番号、BGRA の画素。受け取る側のスレッドから呼ぶ）。GPU へは描画スレッドが載せる。</summary>
+    public void SetRemoteFrame(long tag, byte[] pixels, int width, int height)
     {
-        lock (_device.SyncRoot)
+        if (_disposed) return;
+        lock (_remoteGate)
         {
-            fixed (byte* p = pixels)
-            {
-                if (_remoteBitmap is null || _remoteBitmap.PixelSize.Width != width || _remoteBitmap.PixelSize.Height != height)
-                {
-                    _remoteBitmap?.Dispose();
-                    _remoteBitmap = _context.CreateBitmap(new Vortice.Mathematics.SizeI(width, height), (IntPtr)p, (uint)(width * 4),
-                        new BitmapProperties1(new D2DPixelFormat(BufferFormat, D2DAlphaMode.Ignore), 96, 96, BitmapOptions.None));
-                }
-                else
-                {
-                    _remoteBitmap.CopyFromMemory((IntPtr)p, (uint)(width * 4));
-                }
-            }
+            _remotePending = (pixels, width, height);
+            _remotePendingTag = tag;
+        }
+        // 子の画面を共有していないときは描き直さない（R を選んだときに、最新の絵を載せる）
+        if (_remoteMode) _dirty = true;
+    }
+
+    /// <summary>子の絵を捨てる（子が切れたとき）。tag の接続の絵だけ捨てる（0 なら全部）。</summary>
+    public void ClearRemoteFrame(long tag)
+    {
+        lock (_remoteGate)
+        {
+            if (tag == 0 || _remotePendingTag == tag) _remotePending = null;
+            if (tag == 0 || _remoteBitmapTag == tag) _remoteClear = true;
         }
         _dirty = true;
     }
 
-    /// <summary>子の絵を捨てる（子が切れたとき）。</summary>
-    public void ClearRemoteFrame()
+    /// <summary>届いた子の絵を GPU へ載せる・捨てる（描画スレッドで、装置の鍵を持って呼ぶ）。</summary>
+    private unsafe void ApplyRemoteFrame()
     {
-        lock (_device.SyncRoot)
+        (byte[] Pixels, int Width, int Height)? next;
+        lock (_remoteGate)
         {
-            _remoteBitmap?.Dispose();
-            _remoteBitmap = null;
+            if (_remoteClear)
+            {
+                _remoteClear = false;
+                _remoteBitmap?.Dispose();
+                _remoteBitmap = null;
+            }
+            if (!_remoteMode) return;
+            next = _remotePending;
+            _remotePending = null;
+            if (next is not null) _remoteBitmapTag = _remotePendingTag;
         }
-        _dirty = true;
+        if (next is not { } f) return;
+        fixed (byte* p = f.Pixels)
+        {
+            if (_remoteBitmap is null || _remoteBitmap.PixelSize.Width != f.Width || _remoteBitmap.PixelSize.Height != f.Height)
+            {
+                _remoteBitmap?.Dispose();
+                _remoteBitmap = _context.CreateBitmap(new Vortice.Mathematics.SizeI(f.Width, f.Height), (IntPtr)p, (uint)(f.Width * 4),
+                    new BitmapProperties1(new D2DPixelFormat(BufferFormat, D2DAlphaMode.Ignore), 96, 96, BitmapOptions.None));
+            }
+            else
+            {
+                _remoteBitmap.CopyFromMemory((IntPtr)p, (uint)(f.Width * 4));
+            }
+        }
     }
 
     /// <summary>
@@ -451,7 +490,11 @@ internal sealed class Compositor : IDisposable
                 {
                     _dirty = false;
                     (byte[] Pixels, int Width, int Height)? captured = null;
-                    lock (_device.SyncRoot) captured = RenderCore(order, readBack: sinkDue);
+                    lock (_device.SyncRoot)
+                    {
+                        ApplyRemoteFrame();
+                        captured = RenderCore(order, readBack: sinkDue);
+                    }
                     _lastOrder = order;
                     lastRender = start;
                     if (sinkDue && captured is { } c)
@@ -829,6 +872,7 @@ internal sealed class Compositor : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _running = false;
         _renderThread.Join();
         RemoveAll();

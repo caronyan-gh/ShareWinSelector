@@ -19,6 +19,10 @@
     <value>The child "{0}" wants to connect.
 Check that the child's screen shows the same number, then allow it.</value>
   </data>
+  <data name="Pair_MessageChild" xml:space="preserve">
+    <value>Pairing with the parent "{0}".
+Check that the parent's screen shows the same number, then allow it.</value>
+  </data>
   <data name="Pair_Allow" xml:space="preserve">
     <value>Allow</value>
   </data>
@@ -44,10 +48,10 @@ Check that the child's screen shows the same number, then allow it.</value>
     <value>The child "{0}" wants to connect (number {1}). Allow it in the window that appeared.</value>
   </data>
   <data name="Remote_StatusWaitApproval" xml:space="preserve">
-    <value>Press Allow on the parent's screen. Number: {0} (check that the parent shows the same number).</value>
+    <value>Press Allow on both the parent and this PC. Number: {0} (check that both show the same number).</value>
   </data>
   <data name="Remote_StatusRejected" xml:space="preserve">
-    <value>The parent ({0}) refused the connection.</value>
+    <value>Not connected to the parent ({0}): it was denied on one of the screens, or the time ran out.</value>
   </data>
   <data name="Remote_StatusCertChanged" xml:space="preserve">
     <value>The parent ({0}) is not the one you paired with. If its settings were deleted, unpair and connect again.</value>
@@ -107,7 +111,8 @@ Check that the child's screen shows the same number, then allow it.</value>
     <value>Experimental feature.
 Meant for use within the same LAN (the same network segment).
 It may reduce performance.
-Windows may ask whether to allow the connection through the firewall.</value>
+Windows may ask whether to allow the connection through the firewall.
+That firewall rule stays even after you stop using this. If you no longer need it, remove ShareWinSelector under "Allow an app through Windows Firewall".</value>
   </data>
   <data name="Remote_StatusOff" xml:space="preserve">
     <value>Remote link is off.</value>

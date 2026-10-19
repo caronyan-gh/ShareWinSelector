@@ -53,7 +53,9 @@ public partial class MainWindow
     {
         foreach (var item in _items)
         {
-            item.CropUiVisible = true;
+            // 子のウィンドウは子の画面でクロップする（親の行には出さない）
+            item.CropUiVisible = !item.IsRemote;
+            if (item.IsRemote) continue;
             item.HasSavedCrop = SavedCropFor(item) > 0;
             // 共有中は「今クロップしているか」。未共有は自分でチェックしたときだけ（全体の設定は選んだ瞬間にだけ効く）
             bool on = item.IsChecked
@@ -164,7 +166,7 @@ public partial class MainWindow
     /// <summary>隠す範囲を（作り直して）調整する。</summary>
     private void BeginAdjust(WindowItem item)
     {
-        if (_overlay is null) return;
+        if (_overlay is null || item.IsRemote) return;
         IntPtr hwnd = item.Handle;
 
         if (_cropEditing == hwnd)

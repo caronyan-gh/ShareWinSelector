@@ -102,9 +102,8 @@ public partial class RemoteSettingsWindow : Window
         {
             var found = await RemoteChild.FindParentsAsync(App.Settings.RemotePort, FindWait);
             FoundList.ItemsSource = found;
+            // 1 台だけでも勝手にはつながない（LAN の中の誰かが親を名乗っているだけかもしれないので、選んでもらう）
             FindStatus.Text = found.Count == 0 ? Loc.T("Remote_FoundNone") : Loc.F("Remote_FoundCount", found.Count);
-            // 1 台だけなら、それを選んだことにしてつなぐ
-            if (found.Count == 1) FoundList.SelectedIndex = 0;
         }
         catch (Exception ex)
         {

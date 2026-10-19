@@ -19,6 +19,10 @@
     <value>子「{0}」がつなごうとしています。
 子の画面にも同じ番号が出ているのを確かめてから、許可してください。</value>
   </data>
+  <data name="Pair_MessageChild" xml:space="preserve">
+    <value>親「{0}」とペアリングしようとしています。
+親の画面にも同じ番号が出ているのを確かめてから、許可してください。</value>
+  </data>
   <data name="Pair_Allow" xml:space="preserve">
     <value>許可</value>
   </data>
@@ -44,10 +48,10 @@
     <value>子「{0}」がつなごうとしています（番号 {1}）。出てきた窓で許可してください。</value>
   </data>
   <data name="Remote_StatusWaitApproval" xml:space="preserve">
-    <value>親の画面で［許可］を押してください。番号: {0}（親の画面と同じ番号か確かめてください）</value>
+    <value>親とこの PC の両方で［許可］を押してください。番号: {0}（両方の画面で同じ番号か確かめてください）</value>
   </data>
   <data name="Remote_StatusRejected" xml:space="preserve">
-    <value>親（{0}）につなぐのを断られました。</value>
+    <value>親（{0}）とはつながりませんでした（どちらかの画面で拒否された、または時間切れ）。</value>
   </data>
   <data name="Remote_StatusCertChanged" xml:space="preserve">
     <value>親（{0}）がペアリングした相手と違います。親の設定を消したのなら、「ペアリングを解除」してからつなぎ直してください。</value>
@@ -107,7 +111,8 @@
     <value>実験的な機能です。
 同じ LAN（同じセグメント）の中で使う前提です。
 パフォーマンスが落ちることがあります。
-Windows のファイアウォールの確認画面が出ることがあります。</value>
+Windows のファイアウォールの確認画面が出ることがあります。
+追加した許可は、使うのをやめても残ります。不要なら「Windows ファイアウォールを介したアプリを許可」から ShareWinSelector を外してください。</value>
   </data>
   <data name="Remote_StatusOff" xml:space="preserve">
     <value>リモート連携は使っていません。</value>

@@ -5,7 +5,7 @@
         Title="{Binding [Pair_Title], Source={x:Static local:Loc.Instance}}"
         Width="380" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Topmost="True"
         ShowInTaskbar="True" Icon="Assets/app.ico" Background="{StaticResource BrandWindowBackgroundBrush}">
-    <!-- リモート連携: 初めての子がつなごうとしたときに親の画面に出す。子の画面にも同じ番号が出ているのを確かめて許可する -->
+    <!-- リモート連携: 初めての相手とつなぐときに、親と子の両方の画面に出す。相手の画面にも同じ番号が出ているのを確かめて許可する -->
     <StackPanel Margin="20,16,20,18">
         <TextBlock x:Name="MessageText" TextWrapping="Wrap"/>
         <TextBlock x:Name="CodeText" Margin="0,14,0,14" HorizontalAlignment="Center" FontSize="40" FontWeight="SemiBold"
