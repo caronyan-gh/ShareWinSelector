@@ -51,6 +51,7 @@ public partial class MainWindow
         shared.SortDescriptions.Add(new SortDescription(nameof(WindowItem.GroupOrder), ListSortDirection.Ascending));
         shared.SortDescriptions.Add(new SortDescription(nameof(WindowItem.Order), ListSortDirection.Ascending));
         shared.LiveSortingProperties.Add(nameof(WindowItem.GroupOrder));
+        shared.LiveSortingProperties.Add(nameof(WindowItem.Order));
         SharedChips.ItemsSource = shared;
 
         SourceInitialized += (_, _) =>

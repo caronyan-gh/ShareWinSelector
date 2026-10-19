@@ -176,8 +176,23 @@ public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
     /// <summary>この PC のウィンドウか（子のウィンドウでは出さないボタン用）。</summary>
     public bool IsLocal => !IsRemote;
 
-    /// <summary>一覧での並び順（小さいほど上）。共有するモニターのもの・共有中のものはこれより優先して上に並ぶ。</summary>
-    public int Order { get; set; }
+    private int _order;
+
+    /// <summary>
+    /// 一覧での並び順（小さいほど上）。共有するモニターのもの・共有中のものはこれより優先して上に並ぶ。
+    /// 子のウィンドウの行は、子から一覧が届くたびに子の並び順で振り直すので、変わったら知らせて並べ替えてもらう
+    /// （知らせないと、画面の並びと番号が食い違ったまま残り、そのあとチェックが変わった行が途中に差し込まれる）。
+    /// </summary>
+    public int Order
+    {
+        get => _order;
+        set
+        {
+            if (_order == value) return;
+            _order = value;
+            OnPropertyChanged();
+        }
+    }
 
     public override string ToString() => Display;
 }
@@ -226,6 +241,7 @@ public partial class MainWindow : Window
         sorted.SortDescriptions.Add(new SortDescription(nameof(WindowItem.Order), ListSortDirection.Ascending));
         sorted.LiveSortingProperties.Add(nameof(WindowItem.GroupOrder));
         sorted.LiveSortingProperties.Add(nameof(WindowItem.IsChecked));
+        sorted.LiveSortingProperties.Add(nameof(WindowItem.Order));
         sorted.GroupDescriptions.Add(MonitorGrouping());
         sorted.LiveGroupingProperties.Add(nameof(WindowItem.Group));
         // 「共有するモニター上のものだけ表示」のときは、ほかのモニターのものを（共有中でも）出さない

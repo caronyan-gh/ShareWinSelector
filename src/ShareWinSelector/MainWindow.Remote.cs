@@ -401,9 +401,26 @@ public partial class MainWindow
         }
         // 子のウィンドウの共有の有無で「全部外す」を押せるかが変わる
         UpdateStatus();
+        // その場での並べ替えが済んでから確かめる
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, FixRemoteOrder);
         if (newlyWaiting > 0) ShowRemoteWaitingHint();
         // 子の画面で決め終わったら（待ちが無くなったら）、知らせは引っ込める
         else if (_remoteWaitingHint is { IsOpen: true } hint && !_items.Any(i => i.IsRemote && i.IsChecked && i.RemotePending)) hint.IsOpen = false;
+    }
+
+    /// <summary>
+    /// 親: 子のウィンドウのまとまりが「共有中が先 → 子の並び順」になっていなければ、一覧を並べ直す。
+    /// 子から一覧が届くたびに、子のウィンドウの行の共有中かどうかと並び順がまとめて変わる。WPF のその場での並べ替えは、
+    /// まとまり分けと組み合わせると、そのとき行を途中に差し込んでしまうことがある（共有中なのに先頭に来ない）。
+    /// 崩れているときだけ並べ直すので、普段は何もしない。
+    /// </summary>
+    private void FixRemoteOrder()
+    {
+        var group = RemoteItemGroup();
+        if (_windowView.Groups?.OfType<System.Windows.Data.CollectionViewGroup>().FirstOrDefault(g => Equals(g.Name, group)) is not { } viewGroup) return;
+        var shown = viewGroup.Items.OfType<WindowItem>().Where(i => i.IsRemote).ToList();
+        var expected = shown.OrderByDescending(i => i.IsChecked).ThenBy(i => i.Order).ToList();
+        if (!shown.SequenceEqual(expected)) _windowView.Refresh();
     }
 
     // 親: 子に共有を頼んだ時刻（子の画面で決める待ちになったら、カーソルのそばで知らせるため）
