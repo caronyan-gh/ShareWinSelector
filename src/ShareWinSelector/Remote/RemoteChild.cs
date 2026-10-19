@@ -68,13 +68,78 @@ internal sealed class RemoteChild : IDisposable
     // 親へ送るウィンドウの一覧（JSON）。送ったものと違えば送る
     private byte[]? _windowList;
     private byte[]? _sentWindowList;
+    private long[] _windowIds = [];
+
+    // サムネイル: 親がサムネイル表示の間だけ、数秒おきに変わったものを送る
+    private static readonly TimeSpan ThumbnailInterval = TimeSpan.FromSeconds(5);
+    private const int ThumbnailWidth = 320, ThumbnailHeight = 180, ThumbnailQuality = 70;
+    private volatile bool _thumbnailsWanted;
+    private volatile bool _thumbnailsReset = true;
+    private readonly AutoResetEvent _thumbnailWake = new(false);
+    private SecureChannel? _channel;
 
     /// <summary>この PC のウィンドウの一覧を渡す（UI スレッドから）。変わっていれば親へ送る。</summary>
     public void SubmitWindowList(IReadOnlyList<RemoteWindow> windows)
     {
         var json = JsonSerializer.SerializeToUtf8Bytes(windows);
-        lock (_gate) _windowList = json;
+        lock (_gate)
+        {
+            _windowList = json;
+            _windowIds = windows.Select(w => w.Id).ToArray();
+        }
         _frameReady.Set();
+    }
+
+    /// <summary>
+    /// サムネイルを撮って送り続ける（親がサムネイル表示にしている間だけ）。前に送った絵と同じなら送らない。
+    /// 撮る処理（PrintWindow）は相手のアプリに描かせるので、送る側とは別のスレッドで行う。
+    /// </summary>
+    private void ThumbnailLoop()
+    {
+        var sent = new Dictionary<long, string>();
+        while (!_stop.IsSet)
+        {
+            _thumbnailWake.WaitOne(ThumbnailInterval);
+            if (_stop.IsSet) break;
+            SecureChannel? channel;
+            long[] ids;
+            lock (_gate)
+            {
+                channel = _channel;
+                ids = _windowIds;
+            }
+            if (_thumbnailsReset)
+            {
+                // つなぎ直したとき・サムネイル表示になったときは、全部送り直す
+                sent.Clear();
+                _thumbnailsReset = false;
+            }
+            if (channel is null || !_thumbnailsWanted) continue;
+            try
+            {
+                foreach (long id in ids)
+                {
+                    if (_stop.IsSet || !_thumbnailsWanted) break;
+                    if (WindowSnapshot.Capture((IntPtr)id, ThumbnailWidth, ThumbnailHeight) is not { } snap) continue;
+                    string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(snap.Pixels));
+                    if (sent.TryGetValue(id, out var last) && last == hash) continue;
+                    var jpeg = JpegCodec.Encode(snap.Pixels, snap.Width, snap.Height, ThumbnailQuality);
+                    var payload = new byte[8 + jpeg.Length];
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(payload, id);
+                    jpeg.CopyTo(payload, 8);
+                    channel.Write(RemoteProtocol.Thumbnail, payload);
+                    sent[id] = hash;
+                }
+                // 閉じたウィンドウの分は忘れる
+                foreach (var gone in sent.Keys.Except(ids).ToList()) sent.Remove(gone);
+            }
+            catch (Exception ex)
+            {
+                // 通信が切れたなど（送る側のループがつなぎ直す）
+                Log.Error("リモート連携: サムネイルを送れませんでした", ex);
+                _thumbnailsReset = true;
+            }
+        }
     }
 
     /// <param name="pinnedParent">ペアリングで覚えた親の公開鍵の指紋（無ければ null＝初めてつなぐ親として許可を待つ）。</param>
@@ -89,6 +154,9 @@ internal sealed class RemoteChild : IDisposable
         _thread = new Thread(Run) { IsBackground = true, Name = "RemoteChild" };
         _thread.SetApartmentState(ApartmentState.STA);
         _thread.Start();
+        var thumbnails = new Thread(ThumbnailLoop) { IsBackground = true, Name = "RemoteChild.Thumbnails" };
+        thumbnails.SetApartmentState(ApartmentState.STA);
+        thumbnails.Start();
     }
 
     public string Host => _host;
@@ -159,7 +227,12 @@ internal sealed class RemoteChild : IDisposable
                 var channel = stream;
                 var reader = new Thread(() => ReceiveRequests(channel)) { IsBackground = true, Name = "RemoteChild.Receive" };
                 reader.Start();
-                lock (_gate) _sentWindowList = null; // つなぎ直したら、一覧は必ず送り直す
+                lock (_gate)
+                {
+                    _sentWindowList = null; // つなぎ直したら、一覧とサムネイルは必ず送り直す
+                    _channel = stream;
+                }
+                _thumbnailsReset = true;
 
                 byte[]? lastJpeg = null;
                 var lastFrameSent = System.Diagnostics.Stopwatch.StartNew();
@@ -200,7 +273,11 @@ internal sealed class RemoteChild : IDisposable
             }
             finally
             {
-                lock (_gate) _client = null;
+                lock (_gate)
+                {
+                    _client = null;
+                    _channel = null;
+                }
             }
         }
     }
@@ -212,9 +289,21 @@ internal sealed class RemoteChild : IDisposable
         {
             while (!_stop.IsSet && channel.Read() is { } message)
             {
-                if (message.Type != RemoteProtocol.SetShared) continue;
-                if (JsonSerializer.Deserialize<RemoteShareRequest>(message.Payload) is { } request)
-                    ShareRequested?.Invoke(request.Id, request.Shared);
+                switch (message.Type)
+                {
+                    case RemoteProtocol.SetShared:
+                        if (JsonSerializer.Deserialize<RemoteShareRequest>(message.Payload) is { } request)
+                            ShareRequested?.Invoke(request.Id, request.Shared);
+                        break;
+                    case RemoteProtocol.ThumbnailsWanted:
+                        _thumbnailsWanted = message.Payload is [1, ..];
+                        if (_thumbnailsWanted)
+                        {
+                            _thumbnailsReset = true;
+                            _thumbnailWake.Set();
+                        }
+                        break;
+                }
             }
         }
         catch
@@ -227,6 +316,7 @@ internal sealed class RemoteChild : IDisposable
     {
         _stop.Set();
         _frameReady.Set();
+        _thumbnailWake.Set();
         lock (_gate) _client?.Close();
         _thread.Join(TimeSpan.FromSeconds(3));
     }

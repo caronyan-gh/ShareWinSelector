@@ -156,6 +156,20 @@ public sealed class WindowItem(WindowInfo info) : INotifyPropertyChanged
     /// <summary>子の PC でのウィンドウの番号（IsRemote のとき）。</summary>
     public long RemoteId { get; init; }
 
+    private System.Windows.Media.ImageSource? _remoteThumbnail;
+
+    /// <summary>子のウィンドウのサムネイル（子から数秒おきに届く静止画。この PC のウィンドウでは null）。</summary>
+    public System.Windows.Media.ImageSource? RemoteThumbnail
+    {
+        get => _remoteThumbnail;
+        set
+        {
+            if (_remoteThumbnail == value) return;
+            _remoteThumbnail = value;
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>この PC のウィンドウか（子のウィンドウでは出さないボタン用）。</summary>
     public bool IsLocal => !IsRemote;
 

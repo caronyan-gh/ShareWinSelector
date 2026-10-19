@@ -21,6 +21,16 @@ internal static class JpegCodec
         return stream.ToArray();
     }
 
+    /// <summary>JPEG をそのまま画面に出せる画像にする（どのスレッドからも使えるよう固めて返す）。</summary>
+    public static BitmapSource DecodeImage(byte[] jpeg)
+    {
+        using var stream = new MemoryStream(jpeg);
+        var decoder = new JpegBitmapDecoder(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+        var frame = decoder.Frames[0];
+        frame.Freeze();
+        return frame;
+    }
+
     /// <summary>JPEG を BGRA（アルファは使わない）の画素に戻す。</summary>
     public static (byte[] Pixels, int Width, int Height) Decode(byte[] jpeg)
     {

@@ -41,6 +41,26 @@ internal sealed class RemoteParent : IDisposable
 
     // 今つながっている子との通信路（親から「共有する／外す」を送るため）
     private SecureChannel? _channel;
+    private volatile bool _thumbnailsWanted;
+
+    /// <summary>子のウィンドウのサムネイルが届いた（子の PC でのウィンドウの番号・画像）。受け取る側のスレッドから通知。</summary>
+    public event Action<long, System.Windows.Media.ImageSource>? ThumbnailReceived;
+
+    /// <summary>子にサムネイルを送ってもらうか（親がサムネイル表示の間だけ true）。UI スレッドから。</summary>
+    public void SetThumbnailsWanted(bool wanted)
+    {
+        _thumbnailsWanted = wanted;
+        SecureChannel? channel;
+        lock (_gate) channel = _channel;
+        SendThumbnailsWanted(channel);
+    }
+
+    private void SendThumbnailsWanted(SecureChannel? channel)
+    {
+        if (channel is null) return;
+        try { channel.Write(RemoteProtocol.ThumbnailsWanted, [(byte)(_thumbnailsWanted ? 1 : 0)]); }
+        catch (Exception ex) { Log.Error("リモート連携: 子へサムネイルの要否を送れませんでした", ex); }
+    }
 
     /// <summary>子のウィンドウを共有する／外すよう頼む（UI スレッドから）。つながっていなければ何もしない。</summary>
     public void RequestShare(long id, bool shared)
@@ -130,11 +150,16 @@ internal sealed class RemoteParent : IDisposable
                 return;
             }
             lock (_gate) if (ReferenceEquals(_current, client)) _channel = stream;
+            SendThumbnailsWanted(stream);
             while (_running && IsCurrent(client))
             {
                 if (stream.Read() is not { } message) break;
                 switch (message.Type)
                 {
+                    case RemoteProtocol.Thumbnail when message.Payload.Length > 8:
+                        long id = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(message.Payload);
+                        ThumbnailReceived?.Invoke(id, JpegCodec.DecodeImage(message.Payload[8..]));
+                        break;
                     case RemoteProtocol.WindowList:
                         if (JsonSerializer.Deserialize<List<RemoteWindow>>(message.Payload) is { } windows)
                             WindowListReceived?.Invoke(windows);

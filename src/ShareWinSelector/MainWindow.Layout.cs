@@ -397,6 +397,8 @@ public partial class MainWindow
 
     private void SetThumbnailView(bool thumbnails)
     {
+        // リモート連携の親なら、サムネイル表示の間だけ子にサムネイルを送ってもらう
+        _remoteParent?.SetThumbnailsWanted(thumbnails);
         ThumbViewButton.IsChecked = thumbnails;
         ListViewButton.IsChecked = !thumbnails;
         ThumbScroll.Visibility = thumbnails ? Visibility.Visible : Visibility.Collapsed;

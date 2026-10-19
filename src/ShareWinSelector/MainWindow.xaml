@@ -115,9 +115,11 @@
             <ToggleButton Style="{StaticResource ThumbCardStyle}" Width="212" Margin="0,0,10,10"
                           IsChecked="{Binding IsChecked, Mode=TwoWay}" ToolTip="{Binding Display}">
                 <StackPanel>
-                    <!-- ここに DWM サムネイルが重なる -->
+                    <!-- ここに DWM サムネイルが重なる。リモート連携の子のウィンドウは、子から届いた静止画を中に出す -->
                     <Border Height="118" CornerRadius="6" Background="#FF080C18" Tag="{Binding Handle}"
-                            Loaded="ThumbHost_Loaded" Unloaded="ThumbHost_Unloaded"/>
+                            Loaded="ThumbHost_Loaded" Unloaded="ThumbHost_Unloaded">
+                        <Image Source="{Binding RemoteThumbnail}" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Border>
                     <DockPanel Margin="2,8,2,0">
                         <TextBlock DockPanel.Dock="Right" Text="&#xE73E;" FontFamily="{StaticResource IconFont}"
                                    Foreground="{StaticResource BrandCyanBrush}" VerticalAlignment="Center" Margin="6,0,0,0"

@@ -118,6 +118,13 @@ public partial class MainWindow
             parent.ChildDisconnected += () => Dispatcher.BeginInvoke(() => OnChildDisconnected(parent));
             parent.FrameReceived += (pixels, w, h) => OnRemoteFrame(parent, pixels, w, h);
             parent.WindowListReceived += windows => Dispatcher.BeginInvoke(() => UpdateRemoteItems(parent, windows));
+            parent.ThumbnailReceived += (id, image) => Dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_remoteParent, parent)) return;
+                if (_items.FirstOrDefault(i => i.IsRemote && i.RemoteId == id) is { } item) item.RemoteThumbnail = image;
+            });
+            // サムネイル表示の間だけ、子にサムネイルを送ってもらう
+            parent.SetThumbnailsWanted(ThumbViewButton.IsChecked == true);
             _remoteParent = parent;
             SetRemoteStatus(Loc.F("Remote_StatusListening", port));
             Log.Info($"リモート連携: 親として待ち受け開始（ポート {port}）");

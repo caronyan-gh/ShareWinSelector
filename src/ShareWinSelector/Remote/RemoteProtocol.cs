@@ -30,6 +30,12 @@ internal static class RemoteProtocol
     /// <summary>親 → 子: このウィンドウを共有する／外す（JSON の RemoteShareRequest）。</summary>
     public const byte SetShared = 6;
 
+    /// <summary>親 → 子: サムネイルを送るか（1 バイト、1 = 送る）。親がサムネイル表示にしている間だけ送ってもらう。</summary>
+    public const byte ThumbnailsWanted = 7;
+
+    /// <summary>子 → 親: ウィンドウのサムネイル（子の PC でのウィンドウの番号 8 バイト ＋ JPEG）。変わったものだけ数秒おきに。</summary>
+    public const byte Thumbnail = 8;
+
     /// <summary>1 通の上限（壊れたデータで巨大な配列を作らないように）。</summary>
     public const int MaxMessage = 32 * 1024 * 1024;
 
