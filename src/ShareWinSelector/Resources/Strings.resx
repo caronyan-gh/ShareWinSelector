@@ -141,6 +141,9 @@ That firewall rule stays even after you stop using this. If you no longer need i
   <data name="Monitor_RemoteFormat" xml:space="preserve">
     <value>R  {0}  {1}x{2}</value>
   </data>
+  <data name="Status_SharingOnRemote" xml:space="preserve">
+    <value>Sharing {1} window(s) on R (the child "{0}"). Pick R to show them.</value>
+  </data>
   <data name="Status_SharingRemote" xml:space="preserve">
     <value>Sharing the screen of the child "{0}".</value>
   </data>

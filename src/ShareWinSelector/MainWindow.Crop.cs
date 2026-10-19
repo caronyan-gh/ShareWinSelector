@@ -152,6 +152,9 @@ public partial class MainWindow
         SyncCropChecks();
     }
 
+    /// <summary>親: 子のウィンドウ（R の行）のうち、子で共有中のものの数。</summary>
+    private int RemoteSharedCount => _items.Count(i => i.IsRemote && i.IsChecked);
+
     /// <summary>相手に実際に見えている（確認・調整待ちでない）共有中のウィンドウの数。</summary>
     private int VisibleSharedCount => _selected.Keys.Count(h => !IsWaitingForReview(h));
 

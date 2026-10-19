@@ -421,8 +421,9 @@ public partial class MainWindow
     /// <summary>何も共有していないときは、真っ黒なプレビューの代わりに案内を出す。</summary>
     private void UpdateEmptyStates()
     {
-        // 子の画面（R）を共有している間は、この PC で何も選んでいなくても相手には子の画面が見えている
-        bool empty = VisibleSharedCount == 0 && CurrentMonitor?.IsRemote != true;
+        // 子の画面（R）を共有している間は、この PC で何も選んでいなくても相手には子の画面が見えている。
+        // 子のウィンドウ（R の行）を共有中のときも、共有中の欄にはその行が並ぶので、案内は出さない
+        bool empty = VisibleSharedCount == 0 && CurrentMonitor?.IsRemote != true && RemoteSharedCount == 0;
         // サムネイルは WPF の上に描かれるので、プレースホルダーごと隠して案内を見せる
         PreviewHost.Visibility = empty ? Visibility.Hidden : Visibility.Visible;
         CompactPreviewHost.Visibility = empty ? Visibility.Hidden : Visibility.Visible;

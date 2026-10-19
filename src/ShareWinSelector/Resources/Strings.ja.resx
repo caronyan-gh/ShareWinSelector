@@ -141,6 +141,9 @@ Windows のファイアウォールの確認画面が出ることがあります
   <data name="Monitor_RemoteFormat" xml:space="preserve">
     <value>R  {0}  {1}x{2}</value>
   </data>
+  <data name="Status_SharingOnRemote" xml:space="preserve">
+    <value>R（子「{0}」）で {1} 個のウィンドウを共有中。R を選ぶと映ります。</value>
+  </data>
   <data name="Status_SharingRemote" xml:space="preserve">
     <value>子「{0}」の画面を共有中。</value>
   </data>

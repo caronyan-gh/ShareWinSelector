@@ -842,7 +842,9 @@ public partial class MainWindow : Window
         _toolbar?.SetCount(count, remote);
         // クロップの調整・確認の間は、ツールバーをたたまない
         _toolbar?.SetHold(_cropEditing != IntPtr.Zero);
+        int remoteShared = RemoteSharedCount;
         string summary = remote ? Loc.F("Status_SharingRemote", CurrentMonitor!.RemoteName)
+            : count == 0 && remoteShared > 0 ? Loc.F("Status_SharingOnRemote", _remoteMonitor?.RemoteName ?? "", remoteShared)
             : count == 0 ? Loc.T("Status_NoneShared") : Loc.F("Status_Sharing", count);
         if (pending > 0) summary += Loc.F("Status_Pending", pending);
         StatusText.Text = summary + "\n" + Loc.F("Status_ShareHint", Loc.T("Output_Title"));
