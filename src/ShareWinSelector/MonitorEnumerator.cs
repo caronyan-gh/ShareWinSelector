@@ -4,8 +4,15 @@ namespace ShareWinSelector;
 
 internal sealed record MonitorInfo(string DeviceName, Native.RECT Bounds, bool IsPrimary)
 {
-    public string Display =>
-        $"{DeviceName.TrimStart('\\', '.')}  {Bounds.Width}x{Bounds.Height}{(IsPrimary ? "  " + Loc.T("Monitor_Primary") : "")}";
+    /// <summary>リモート連携の子の画面（親の「共有するモニター」に R として出る）。</summary>
+    public bool IsRemote { get; init; }
+
+    /// <summary>子の名前（IsRemote のとき）。</summary>
+    public string RemoteName { get; init; } = "";
+
+    public string Display => IsRemote
+        ? Loc.F("Monitor_RemoteFormat", RemoteName, Bounds.Width, Bounds.Height)
+        : $"{DeviceName.TrimStart('\\', '.')}  {Bounds.Width}x{Bounds.Height}{(IsPrimary ? "  " + Loc.T("Monitor_Primary") : "")}";
     public override string ToString() => Display;
 }
 

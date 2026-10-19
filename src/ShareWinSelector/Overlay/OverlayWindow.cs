@@ -173,6 +173,19 @@ internal sealed class OverlayWindow : Window
         ApplyBounds();
     }
 
+    /// <summary>枠をくすんだ水色にする（このモニターのウィンドウが相手に見えていないとき。リモート連携で子の画面を共有している間など）。</summary>
+    public bool Muted
+    {
+        get => _surface.Muted;
+        set
+        {
+            if (_surface.Muted == value) return;
+            _surface.Muted = value;
+            _lastSignature = null;
+            Refresh();
+        }
+    }
+
     public bool ShowBorders
     {
         get => _showBorders;

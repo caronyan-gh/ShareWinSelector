@@ -319,14 +319,19 @@ public partial class MainWindow
     /// <summary>
     /// コンパクト表示の「まとめて最前面」の左に、モニターの絵に番号を入れたボタンを並べる（押すとそのモニターを共有する）。
     /// モニターが 1 枚なら出さない。番号は Windows の番号（DISPLAY1 など）で、小さい順に最大 4 つ。
+    /// リモート連携で子とつながっている間は、一番右を子の画面の「R」が使う（この PC のモニターは最大 3 つ）。
     /// </summary>
     private void RebuildCompactMonitorButtons(IReadOnlyList<MonitorInfo> monitors)
     {
         CompactMonitorPanel.Children.Clear();
         _compactMonitorButtons.Clear();
-        if (monitors.Count < 2) return;
+        var remote = monitors.FirstOrDefault(m => m.IsRemote);
+        var local = monitors.Where(m => !m.IsRemote).OrderBy(MonitorNumber).ToList();
+        if (local.Count + (remote is null ? 0 : 1) < 2) return;
+        var shown = local.Take(remote is null ? MaxCompactMonitorButtons : MaxCompactMonitorButtons - 1).ToList();
+        if (remote is not null) shown.Add(remote);
         var iconFont = (FontFamily)FindResource("IconFont");
-        foreach (var m in monitors.OrderBy(MonitorNumber).Take(MaxCompactMonitorButtons))
+        foreach (var m in shown)
         {
             int number = MonitorNumber(m);
             // モニターの記号の画面部分に、小さな番号を重ねる（画像を使わないので拡大率が変わってもにじまない）
@@ -334,7 +339,7 @@ public partial class MainWindow
             face.Children.Add(new TextBlock { Text = "", FontFamily = iconFont, FontSize = 16, HorizontalAlignment = HorizontalAlignment.Center });
             face.Children.Add(new TextBlock
             {
-                Text = number == int.MaxValue ? "?" : number.ToString(),
+                Text = m.IsRemote ? "R" : number == int.MaxValue ? "?" : number.ToString(),
                 FontSize = 9,
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -414,7 +419,8 @@ public partial class MainWindow
     /// <summary>何も共有していないときは、真っ黒なプレビューの代わりに案内を出す。</summary>
     private void UpdateEmptyStates()
     {
-        bool empty = VisibleSharedCount == 0;
+        // 子の画面（R）を共有している間は、この PC で何も選んでいなくても相手には子の画面が見えている
+        bool empty = VisibleSharedCount == 0 && CurrentMonitor?.IsRemote != true;
         // サムネイルは WPF の上に描かれるので、プレースホルダーごと隠して案内を見せる
         PreviewHost.Visibility = empty ? Visibility.Hidden : Visibility.Visible;
         CompactPreviewHost.Visibility = empty ? Visibility.Hidden : Visibility.Visible;

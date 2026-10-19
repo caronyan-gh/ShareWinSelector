@@ -18,8 +18,10 @@ public partial class App : Application
     }
 
     // 多重起動の防止（Debug 版と Release 版も合わせて 1 つ）。2 つ目は 1 つ目を手前に出してもらって終わる
-    private const string InstanceMutexName = @"Local\ShareWinSelector.SingleInstance";
-    private const string ActivateEventName = @"Local\ShareWinSelector.Activate";
+    // 開発用の別名（AppSettings.Profile）を付けたときは、別名ごとに 1 つ
+    private static readonly string InstanceMutexName = @"Local\ShareWinSelector.SingleInstance" + ProfileSuffix;
+    private static readonly string ActivateEventName = @"Local\ShareWinSelector.Activate" + ProfileSuffix;
+    private static string ProfileSuffix => AppSettings.Profile is { } p ? "." + p : "";
     private static Mutex? _instanceMutex;
     private static EventWaitHandle? _activateEvent;
 

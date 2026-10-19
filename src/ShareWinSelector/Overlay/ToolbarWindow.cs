@@ -178,7 +178,7 @@ internal sealed class ToolbarWindow : Window
         SetCount(0);
         Loc.Instance.LanguageChanged += () =>
         {
-            SetCount(_count);
+            SetCount(_count, _remote);
             // 文言の長さが変わるので、ドラッグされていなければ中央に置き直す
             Dispatcher.BeginInvoke(PlaceAtTop, System.Windows.Threading.DispatcherPriority.Loaded);
         };
@@ -357,11 +357,14 @@ internal sealed class ToolbarWindow : Window
     }
 
     private int _count;
+    private bool _remote;
 
-    public void SetCount(int count)
+    /// <summary>共有中の数を出す。remote なら、リモート連携で子の画面を共有中と出す。</summary>
+    public void SetCount(int count, bool remote = false)
     {
         _count = count;
-        _countText.Text = count == 0 ? Loc.T("Toolbar_NoneShared") : Loc.F("Toolbar_Sharing", count);
+        _remote = remote;
+        _countText.Text = remote ? Loc.T("Toolbar_SharingRemote") : count == 0 ? Loc.T("Toolbar_NoneShared") : Loc.F("Toolbar_Sharing", count);
         if (_hwnd != IntPtr.Zero) Relayout();
     }
 

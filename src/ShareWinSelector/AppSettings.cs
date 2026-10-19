@@ -67,6 +67,20 @@ internal sealed class AppSettings
     /// <summary>共有するモニターのデバイス名（null はメインモニター）。</summary>
     public string? MonitorDevice { get; set; }
 
+    /// <summary>リモート連携を使う（オンなら起動したときも前回の役割で動き始める。オフなら待ち受けもつなぎに行くこともしない）。</summary>
+    public bool RemoteEnabled { get; set; }
+
+    /// <summary>リモート連携の役割（"Parent" / "Child"）。親は会議で共有する PC、子は画面を親へ送る PC（RDP でつないでいる会社のノートなど）。</summary>
+    public string RemoteRole { get; set; } = "Parent";
+
+    /// <summary>リモート連携で使うポート（親が待ち受け、子がつなぎに行く）。</summary>
+    public int RemotePort { get; set; } = DefaultRemotePort;
+
+    public const int DefaultRemotePort = 47810;
+
+    /// <summary>子がつなぎに行く親の IP アドレス（見つけて選んだもの、または直接入れたもの）。</summary>
+    public string? RemoteParentAddress { get; set; }
+
     /// <summary>通常表示・コンパクト表示それぞれの位置とサイズ（null は既定）。</summary>
     public WindowBounds? NormalBounds { get; set; }
     public WindowBounds? CompactBounds { get; set; }
@@ -74,9 +88,21 @@ internal sealed class AppSettings
     /// <summary>出力ウィンドウの位置と大きさ（null は既定）。</summary>
     public OutputWindowState? OutputWindow { get; set; }
 
+    /// <summary>
+    /// 開発用の別名（Debug 版だけ、環境変数 SWS_PROFILE）。付けると多重起動の判定と設定フォルダが別になり、
+    /// 1 台の PC でリモート連携の親と子を同時に動かして確かめられる。リリース版では常に null。
+    /// </summary>
+    public static string? Profile { get; } =
+#if DEBUG
+        Environment.GetEnvironmentVariable("SWS_PROFILE") is { Length: > 0 } p ? p : null;
+#else
+        null;
+#endif
+
     /// <summary>設定とログを置くフォルダ（%LOCALAPPDATA%\ShareWinSelector）。アプリが書き込むのはここだけ。</summary>
     public static string Folder { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ShareWinSelector");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        Profile is null ? "ShareWinSelector" : "ShareWinSelector-" + Profile);
 
     private static string FilePath { get; } = Path.Combine(Folder, "settings.json");
 
@@ -104,6 +130,8 @@ internal sealed class AppSettings
         CropUse ??= [];
         Placement ??= "Back";
         Background ??= "Default";
+        if (RemoteRole is not ("Parent" or "Child")) RemoteRole = "Parent";
+        if (RemotePort is <= 0 or > 65535) RemotePort = DefaultRemotePort;
         // 1.0 の「黒」は「単色（色を選んでいなければ黒）」になった
         if (Background == "Black") Background = "Solid";
         return this;

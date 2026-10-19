@@ -83,6 +83,15 @@ internal sealed class Compositor : IDisposable
     // 設定やサイズの変更など、次のフレームで必ず描き直してほしいとき true
     private volatile bool _dirty = true;
     private volatile bool _holdOrder;
+
+    // --- リモート連携 ---
+    // 親: 子から届いた絵（これを描いている間は、この PC のウィンドウは描かない）
+    private volatile bool _remoteMode;
+    private ID2D1Bitmap1? _remoteBitmap;
+    // 子: 合成した絵を渡す先と、渡す間隔（1 秒あたり 12 コマまで）。変わったときだけ渡す
+    private static readonly TimeSpan FrameSinkInterval = TimeSpan.FromMilliseconds(1000.0 / 12);
+    private ID3D11Texture2D? _staging;
+    private bool _sinkPending;
     // 前回描いた配置（描画スレッド専用）
     private List<(IntPtr Hwnd, Native.RECT Bounds, int CropPx)> _lastOrder = [];
 
@@ -358,6 +367,52 @@ internal sealed class Compositor : IDisposable
     }
 
     /// <summary>
+    /// 子として動くとき、合成した絵（BGRA の画素・幅・高さ）を渡す先。null なら渡さない。
+    /// 絵が変わったときだけ、1 秒あたり 12 コマまで、描画スレッドから呼ぶ。
+    /// </summary>
+    public Action<byte[], int, int>? FrameSink { get; set; }
+
+    /// <summary>親として子の画面を共有しているか（true の間は子の絵だけを描く）。</summary>
+    public bool RemoteMode
+    {
+        get => _remoteMode;
+        set { _remoteMode = value; _dirty = true; }
+    }
+
+    /// <summary>子から届いた絵を差し替える（BGRA の画素。受け取る側のスレッドから呼ぶ）。</summary>
+    public unsafe void SetRemoteFrame(byte[] pixels, int width, int height)
+    {
+        lock (_device.SyncRoot)
+        {
+            fixed (byte* p = pixels)
+            {
+                if (_remoteBitmap is null || _remoteBitmap.PixelSize.Width != width || _remoteBitmap.PixelSize.Height != height)
+                {
+                    _remoteBitmap?.Dispose();
+                    _remoteBitmap = _context.CreateBitmap(new Vortice.Mathematics.SizeI(width, height), (IntPtr)p, (uint)(width * 4),
+                        new BitmapProperties1(new D2DPixelFormat(BufferFormat, D2DAlphaMode.Ignore), 96, 96, BitmapOptions.None));
+                }
+                else
+                {
+                    _remoteBitmap.CopyFromMemory((IntPtr)p, (uint)(width * 4));
+                }
+            }
+        }
+        _dirty = true;
+    }
+
+    /// <summary>子の絵を捨てる（子が切れたとき）。</summary>
+    public void ClearRemoteFrame()
+    {
+        lock (_device.SyncRoot)
+        {
+            _remoteBitmap?.Dispose();
+            _remoteBitmap = null;
+        }
+        _dirty = true;
+    }
+
+    /// <summary>
     /// 重なり順を今のまま止めておく。まとめて最前面では 1 つずつ手前へ出すので、途中の一瞬だけ共有中のウィンドウ同士の
     /// 重なりが変わる（終わると元の並びに戻る）。その途中の並びが相手に映ってちらつかないように、出している間だけ止める。
     /// 中身（各ウィンドウの絵）はその間も更新する。
@@ -373,6 +428,7 @@ internal sealed class Compositor : IDisposable
         var frameTime = TimeSpan.FromSeconds(1.0 / TargetFps);
         var sw = Stopwatch.StartNew();
         var lastRender = TimeSpan.Zero;
+        var lastSink = TimeSpan.Zero;
         int consecutiveErrors = 0;
         while (_running)
         {
@@ -381,15 +437,30 @@ internal sealed class Compositor : IDisposable
             {
                 // 各ウィンドウの最新フレームを受け取る（このときだけコピーするので、30 回/秒より多くは写さない）
                 bool fresh = PullFrames();
+                // 子の画面を共有している間は、この PC のウィンドウは描かないので調べない。
                 // 重なり順を止めている間（まとめて最前面の最中）は、途中の並びを描かないよう前回の並びのまま描く
-                var order = _holdOrder && _lastOrder.Count > 0 ? _lastOrder : GetDrawOrder();
+                var order = _remoteMode ? [] : _holdOrder && _lastOrder.Count > 0 ? _lastOrder : GetDrawOrder();
+                bool changed = fresh || _dirty || !SameOrder(order, _lastOrder);
+                // 子として動いているときは、変わった絵を親へ渡す（間隔が来るまでは取っておいて、来たら渡す）
+                var sink = FrameSink;
+                if (sink is null) _sinkPending = false;
+                else if (changed) _sinkPending = true;
+                bool sinkDue = _sinkPending && start - lastSink >= FrameSinkInterval;
                 // 中身も配置も設定も変わっていなければ描き直さない（GPU を休ませる）
-                if (fresh || _dirty || !SameOrder(order, _lastOrder) || start - lastRender >= IdleRedrawInterval)
+                if (changed || sinkDue || start - lastRender >= IdleRedrawInterval)
                 {
                     _dirty = false;
-                    lock (_device.SyncRoot) RenderCore(order);
+                    (byte[] Pixels, int Width, int Height)? captured = null;
+                    lock (_device.SyncRoot) captured = RenderCore(order, readBack: sinkDue);
                     _lastOrder = order;
                     lastRender = start;
+                    if (sinkDue && captured is { } c)
+                    {
+                        _sinkPending = false;
+                        lastSink = start;
+                        try { sink!(c.Pixels, c.Width, c.Height); }
+                        catch (Exception ex) { Log.Error("合成した絵を渡せませんでした", ex); }
+                    }
                 }
                 consecutiveErrors = 0;
             }
@@ -636,9 +707,10 @@ internal sealed class Compositor : IDisposable
         if ((exStyle & Native.WS_EX_TOOLWINDOW) != 0) return false;
         return !string.IsNullOrWhiteSpace(Native.GetTitle(hWnd));
     }
-    private void RenderCore(List<(IntPtr Hwnd, Native.RECT Bounds, int CropPx)> order)
+    /// <summary>描く。readBack なら、出す前の絵を取り出して返す（子として親へ送るため）。</summary>
+    private (byte[] Pixels, int Width, int Height)? RenderCore(List<(IntPtr Hwnd, Native.RECT Bounds, int CropPx)> order, bool readBack = false)
     {
-        if (_target is null) return;
+        if (_target is null) return null;
         var targetSize = _target.PixelSize;
         int cw = Math.Max(_canvas.Width, 1), ch = Math.Max(_canvas.Height, 1);
 
@@ -654,7 +726,16 @@ internal sealed class Compositor : IDisposable
         var canvasRect = new Rect(0, 0, cw, ch);
         _context.PushAxisAlignedClip(canvasRect, AntialiasMode.Aliased);
         _context.FillRectangle(canvasRect, _canvasBrush);
-        if (_background is not null)
+        if (_remoteMode)
+        {
+            // 子の画面を共有中: 子から届いた絵をキャンバスいっぱいに描く（届くまでは塗りつぶしのまま）
+            if (_remoteBitmap is not null)
+            {
+                var rs = _remoteBitmap.PixelSize;
+                _context.DrawBitmap(_remoteBitmap, canvasRect, 1f, InterpolationMode.Linear, new Rect(0, 0, rs.Width, rs.Height), null);
+            }
+        }
+        else if (_background is not null)
         {
             // キャンバスを覆うように拡大（はみ出す分は中央で切る）
             var bs = _background.PixelSize;
@@ -664,7 +745,7 @@ internal sealed class Compositor : IDisposable
                 InterpolationMode.HighQualityCubic, new Rect(0, 0, bs.Width, bs.Height), null);
         }
 
-        foreach (var (hwnd, bounds, cropPx) in order)
+        foreach (var (hwnd, bounds, cropPx) in _remoteMode ? [] : order)
         {
             if (!_sources.TryGetValue(hwnd, out var s) || s.Dead || s.Hidden || s.Bitmap is null || s.Width <= 0 || s.Height <= 0) continue;
             // キャプチャ内容は物理ピクセル等倍で、実ウィンドウの左上に置く。上をクロップしていればその分を描かない
@@ -676,12 +757,45 @@ internal sealed class Compositor : IDisposable
 
         _context.PopAxisAlignedClip();
         _context.EndDraw();
+        // 出す（Present）とバックバッファの中身は保証されないので、その前に取り出す
+        var captured = readBack ? ReadBackBuffer() : null;
 #if DEBUG
         // デバッグ: 共有映像を画像に書き出す（リリース版には入れない）
         if (Environment.GetEnvironmentVariable("SWS_DUMP") is { } dumpPath && Environment.TickCount64 % 1000 < 40)
             DumpBackBuffer(dumpPath);
 #endif
         _swapChain.Present(0, PresentFlags.None);
+        return captured;
+    }
+
+    /// <summary>今のバックバッファの絵を BGRA の画素で取り出す（行の詰め物は除く）。</summary>
+    private (byte[] Pixels, int Width, int Height)? ReadBackBuffer()
+    {
+        using var back = _swapChain.GetBuffer<ID3D11Texture2D>(0);
+        var desc = back.Description;
+        if (_staging is null || _staging.Description.Width != desc.Width || _staging.Description.Height != desc.Height)
+        {
+            _staging?.Dispose();
+            desc.Usage = ResourceUsage.Staging;
+            desc.BindFlags = BindFlags.None;
+            desc.CPUAccessFlags = CpuAccessFlags.Read;
+            desc.MiscFlags = ResourceOptionFlags.None;
+            _staging = _device.D3DDevice.CreateTexture2D(desc);
+        }
+        _device.D3DContext.CopyResource(_staging, back);
+        var map = _device.D3DContext.Map(_staging, 0, MapMode.Read);
+        try
+        {
+            int width = (int)desc.Width, height = (int)desc.Height, row = width * 4;
+            var pixels = new byte[row * height];
+            for (int y = 0; y < height; y++)
+                System.Runtime.InteropServices.Marshal.Copy(map.DataPointer + (nint)(y * (long)map.RowPitch), pixels, y * row, row);
+            return (pixels, width, height);
+        }
+        finally
+        {
+            _device.D3DContext.Unmap(_staging, 0);
+        }
     }
 
 #if DEBUG
@@ -724,6 +838,8 @@ internal sealed class Compositor : IDisposable
             _target?.Dispose();
             _canvasBrush.Dispose();
             _background?.Dispose();
+            _remoteBitmap?.Dispose();
+            _staging?.Dispose();
             _context.Dispose();
             _swapChain.Dispose();
         }

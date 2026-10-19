@@ -12,6 +12,90 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="Settings_Advanced" xml:space="preserve">
+    <value>特殊設定</value>
+  </data>
+  <data name="Settings_AdvancedTip" xml:space="preserve">
+    <value>リモート連携などの特殊な設定</value>
+  </data>
+  <data name="Advanced_Title" xml:space="preserve">
+    <value>特殊設定</value>
+  </data>
+  <data name="Advanced_Close" xml:space="preserve">
+    <value>閉じる</value>
+  </data>
+  <data name="Remote_Header" xml:space="preserve">
+    <value>リモート連携</value>
+  </data>
+  <data name="Remote_Enable" xml:space="preserve">
+    <value>リモート連携を使う</value>
+  </data>
+  <data name="Remote_Parent" xml:space="preserve">
+    <value>親: この PC で会議の画面共有をする</value>
+  </data>
+  <data name="Remote_Child" xml:space="preserve">
+    <value>子: この PC の画面を親に送る（リモート デスクトップでつないでいる PC など）</value>
+  </data>
+  <data name="Remote_Port" xml:space="preserve">
+    <value>ポート</value>
+  </data>
+  <data name="Remote_ParentHeader" xml:space="preserve">
+    <value>送り先の親</value>
+  </data>
+  <data name="Remote_Find" xml:space="preserve">
+    <value>親を見つける</value>
+  </data>
+  <data name="Remote_Finding" xml:space="preserve">
+    <value>探しています…</value>
+  </data>
+  <data name="Remote_FoundCount" xml:space="preserve">
+    <value>{0} 台見つかりました。選ぶとつなぎます。</value>
+  </data>
+  <data name="Remote_FoundNone" xml:space="preserve">
+    <value>見つかりませんでした。親が待ち受けているか確かめるか、IP アドレスを入れてください。</value>
+  </data>
+  <data name="Remote_Address" xml:space="preserve">
+    <value>IP アドレス</value>
+  </data>
+  <data name="Remote_Connect" xml:space="preserve">
+    <value>つなぐ</value>
+  </data>
+  <data name="Remote_Note" xml:space="preserve">
+    <value>同じ LAN の中だけで使う機能です。通信は暗号化していません。</value>
+  </data>
+  <data name="Remote_StatusOff" xml:space="preserve">
+    <value>リモート連携は使っていません。</value>
+  </data>
+  <data name="Remote_StatusListening" xml:space="preserve">
+    <value>子からの接続を待っています（ポート {0}）。</value>
+  </data>
+  <data name="Remote_StatusChildConnected" xml:space="preserve">
+    <value>子「{0}」とつながっています。「共有するモニター」で R を選ぶと、子の画面を共有します。</value>
+  </data>
+  <data name="Remote_StatusConnecting" xml:space="preserve">
+    <value>親（{0}）につないでいます…</value>
+  </data>
+  <data name="Remote_StatusConnected" xml:space="preserve">
+    <value>親（{0}）にこの画面を送っています。</value>
+  </data>
+  <data name="Remote_StatusRetry" xml:space="preserve">
+    <value>親（{0}）につなげませんでした。つなぎ直しています…</value>
+  </data>
+  <data name="Remote_StatusNoParent" xml:space="preserve">
+    <value>親を見つけるか、IP アドレスを入れてください。</value>
+  </data>
+  <data name="Remote_StatusError" xml:space="preserve">
+    <value>始められませんでした: {0}</value>
+  </data>
+  <data name="Monitor_RemoteFormat" xml:space="preserve">
+    <value>R  {0}  {1}x{2}</value>
+  </data>
+  <data name="Status_SharingRemote" xml:space="preserve">
+    <value>子「{0}」の画面を共有中。</value>
+  </data>
+  <data name="Toolbar_SharingRemote" xml:space="preserve">
+    <value>● R を共有中</value>
+  </data>
   <data name="Monitor_Label" xml:space="preserve">
     <value>共有するモニター</value>
   </data>

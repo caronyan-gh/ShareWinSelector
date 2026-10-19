@@ -1,0 +1,54 @@
+<Window x:Class="ShareWinSelector.RemoteSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ShareWinSelector"
+        Title="{Binding [Advanced_Title], Source={x:Static local:Loc.Instance}}"
+        Width="460" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Icon="Assets/app.ico" Background="{StaticResource BrandWindowBackgroundBrush}">
+    <!-- 特殊設定（今はリモート連携だけ）。変えたらその場で効く（OK / キャンセルは無い） -->
+    <StackPanel Margin="18,14,18,16">
+        <TextBlock Text="{Binding [Remote_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
+        <CheckBox x:Name="EnabledCheck" Checked="Settings_Changed" Unchecked="Settings_Changed">
+            <TextBlock Text="{Binding [Remote_Enable], Source={x:Static local:Loc.Instance}}" TextWrapping="Wrap"/>
+        </CheckBox>
+
+        <StackPanel x:Name="Body" Margin="26,8,0,0">
+            <RadioButton x:Name="ParentRadio" GroupName="RemoteRole" Checked="Settings_Changed">
+                <TextBlock Text="{Binding [Remote_Parent], Source={x:Static local:Loc.Instance}}" TextWrapping="Wrap"/>
+            </RadioButton>
+            <RadioButton x:Name="ChildRadio" GroupName="RemoteRole" Checked="Settings_Changed">
+                <TextBlock Text="{Binding [Remote_Child], Source={x:Static local:Loc.Instance}}" TextWrapping="Wrap"/>
+            </RadioButton>
+
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock Text="{Binding [Remote_Port], Source={x:Static local:Loc.Instance}}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBox x:Name="PortBox" Width="90" LostFocus="PortBox_LostFocus" KeyDown="PortBox_KeyDown"/>
+            </StackPanel>
+
+            <!-- 子のときだけ: 送り先の親を見つけて選ぶ（見つからなければ IP アドレスを直接入れる） -->
+            <StackPanel x:Name="ChildPanel" Margin="0,14,0,0">
+                <TextBlock Text="{Binding [Remote_ParentHeader], Source={x:Static local:Loc.Instance}}"/>
+                <DockPanel Margin="0,6,0,0">
+                    <Button x:Name="FindButton" DockPanel.Dock="Left" Padding="12,4" Click="Find_Click"
+                            Content="{Binding [Remote_Find], Source={x:Static local:Loc.Instance}}"/>
+                    <TextBlock x:Name="FindStatus" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{StaticResource BrandSubtleTextBrush}"/>
+                </DockPanel>
+                <ListBox x:Name="FoundList" Height="84" Margin="0,6,0,0" SelectionChanged="FoundList_SelectionChanged"/>
+                <DockPanel Margin="0,8,0,0">
+                    <TextBlock DockPanel.Dock="Left" Text="{Binding [Remote_Address], Source={x:Static local:Loc.Instance}}"
+                               VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <Button DockPanel.Dock="Right" Padding="12,4" Margin="8,0,0,0" Click="Connect_Click"
+                            Content="{Binding [Remote_Connect], Source={x:Static local:Loc.Instance}}"/>
+                    <TextBox x:Name="AddressBox" KeyDown="AddressBox_KeyDown"/>
+                </DockPanel>
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText" Margin="0,16,0,0" TextWrapping="Wrap"/>
+        <TextBlock Text="{Binding [Remote_Note], Source={x:Static local:Loc.Instance}}" Margin="0,8,0,0" FontSize="12" TextWrapping="Wrap"
+                   Foreground="{StaticResource BrandSubtleTextBrush}"/>
+        <Button HorizontalAlignment="Right" Margin="0,16,0,0" Padding="18,4" IsCancel="True" Click="Close_Click"
+                Content="{Binding [Advanced_Close], Source={x:Static local:Loc.Instance}}"/>
+    </StackPanel>
+</Window>

@@ -187,6 +187,7 @@ public partial class MainWindow : Window
 #if DEBUG
         // デバッグビルドは自分の画面もキャプチャに写るので、ひと目で分かるようにする
         Title += Interop.Native.ShouldExcludeFromCapture ? " (Debug)" : " (Debug - capturable)";
+        if (AppSettings.Profile is { } profile) Title += $" [{profile}]";
 #endif
         // 共有するモニターのものを上に、その中で共有中のものを上にまとめる（チェックした瞬間・モニターをまたいだ瞬間に並び替わる）。
         // ほかのモニターのものは後ろ（共有中でも）に、モニターごとの区切り線で分けて並べる。それぞれの中は見つけた順
@@ -313,6 +314,7 @@ public partial class MainWindow : Window
         CloseSplashAndApplyPin();
         _listTimer.Start();
         _monitorFollowTimer.Start();
+        ApplyRemoteSettings();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChangedRaw;
     }
 
@@ -327,6 +329,8 @@ public partial class MainWindow : Window
             IncludePopups = PopupCheck.IsChecked == true,
         };
         _compositor.SourceClosed += hwnd => Dispatcher.BeginInvoke(() => OnSourceClosed(hwnd));
+        _compositor.RemoteMode = monitor.IsRemote;
+        _compositor.FrameSink = _remoteChild is { } child ? child.SubmitFrame : null;
         _compositor.DeviceLost += () => Dispatcher.BeginInvoke(RecoverFromDeviceLost);
         ApplyBackground(); // デバイスを作り直したときも背景を載せ直す
     }
@@ -383,16 +387,13 @@ public partial class MainWindow : Window
     private void OnDisplaySettingsChanged()
     {
         if (_shuttingDown) return;
-        var monitors = MonitorEnumerator.GetMonitors();
-        if (monitors.Count == 0) return;
-        string? current = CurrentMonitor?.DeviceName;
-        var next = monitors.FirstOrDefault(m => m.DeviceName == current)
-                   ?? monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors[0];
-        Log.Info($"表示設定の変更: {string.Join(", ", monitors.Select(m => m.Display))} → {next.Display}");
-        MonitorCombo.ItemsSource = monitors;
-        RebuildCompactMonitorButtons(monitors);
-        MonitorCombo.SelectedItem = next; // SelectionChanged でキャンバス・オーバーレイを更新
-        ApplyMonitor(next);
+        if (MonitorEnumerator.GetMonitors().Count == 0) return;
+        RefreshMonitorList(); // SelectionChanged でキャンバス・オーバーレイを更新
+        if (CurrentMonitor is { } next)
+        {
+            Log.Info($"表示設定の変更 → {next.Display}");
+            ApplyMonitor(next);
+        }
         _output?.ReapplyPlacement();
     }
 
@@ -523,8 +524,9 @@ public partial class MainWindow : Window
         UpdateMonitorFlags();
     }
 
+    // 子の画面（R）を共有している間は、この PC のウィンドウはどれも共有するモニターの上にない
     private bool IsOnSharedMonitor(IntPtr hwnd) =>
-        CurrentMonitor is not { } monitor || WindowEnumerator.IsOnMonitor(hwnd, monitor.Bounds);
+        CurrentMonitor is not { } monitor || (!monitor.IsRemote && WindowEnumerator.IsOnMonitor(hwnd, monitor.Bounds));
 
     /// <summary>モニターごとのまとまりで分ける（まとまりは共有するモニター → Windows の番号順）。</summary>
     internal static System.Windows.Data.PropertyGroupDescription MonitorGrouping()
@@ -781,10 +783,12 @@ public partial class MainWindow : Window
         // 確認・調整待ちのものはまだ相手に見えていないので数えない
         int count = VisibleSharedCount;
         int pending = _selected.Count - count;
-        _toolbar?.SetCount(count);
+        bool remote = CurrentMonitor?.IsRemote == true;
+        _toolbar?.SetCount(count, remote);
         // クロップの調整・確認の間は、ツールバーをたたまない
         _toolbar?.SetHold(_cropEditing != IntPtr.Zero);
-        string summary = count == 0 ? Loc.T("Status_NoneShared") : Loc.F("Status_Sharing", count);
+        string summary = remote ? Loc.F("Status_SharingRemote", CurrentMonitor!.RemoteName)
+            : count == 0 ? Loc.T("Status_NoneShared") : Loc.F("Status_Sharing", count);
         if (pending > 0) summary += Loc.F("Status_Pending", pending);
         StatusText.Text = summary + "\n" + Loc.F("Status_ShareHint", Loc.T("Output_Title"));
         CompactStatusText.Text = summary;
@@ -802,12 +806,30 @@ public partial class MainWindow : Window
         ApplyMonitor(monitor);
         SyncCompactMonitorButtons();
         if (_compositor is not null) RefreshList(); // 一覧をこのモニターのものに
+        UpdateStatus();
+        // 子の画面（R）はつながっているときだけあるので、次の起動用には覚えない
+        if (monitor.IsRemote) return;
         App.Settings.MonitorDevice = monitor.DeviceName;
         App.Settings.Save();
     }
 
     private void ApplyMonitor(MonitorInfo monitor)
     {
+        if (monitor.IsRemote)
+        {
+            // 子の画面を共有: 出力は子の絵だけ。この PC の膜とツールバーは今のモニターに置いたまま、枠はくすんだ水色にする
+            // （この PC のウィンドウはどれも相手に見えていないので）
+            if (_compositor is not null)
+            {
+                _compositor.Canvas = monitor.Bounds;
+                _compositor.RemoteMode = true;
+            }
+            _output?.SetCanvasSize(monitor.Bounds.Width, monitor.Bounds.Height);
+            if (_overlay is not null) _overlay.Muted = true;
+            return;
+        }
+        if (_overlay is not null) _overlay.Muted = false;
+        if (_compositor is not null) _compositor.RemoteMode = false;
         if (_compositor is not null) _compositor.Canvas = monitor.Bounds;
         // 出力の中身をモニターと同じ縦横比にして、共有映像に帯が出ないようにする
         _output?.SetCanvasSize(monitor.Bounds.Width, monitor.Bounds.Height);
@@ -869,6 +891,7 @@ public partial class MainWindow : Window
         if (_output is not null) App.Settings.OutputWindow = _output.CaptureState();
         App.Settings.Save();
         Loc.Instance.LanguageChanged -= OnLanguageChanged;
+        StopRemote();
         _listTimer.Stop();
         _monitorFollowTimer.Stop();
         _displayChangeTimer.Stop();

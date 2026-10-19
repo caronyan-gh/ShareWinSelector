@@ -343,7 +343,13 @@
                                     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
                                 </Style>
                             </StackPanel.Resources>
-                            <TextBlock Text="{Binding [Settings_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
+                            <!-- 見出しの右端に「特殊設定」（リモート連携など、使う人だけが開く設定） -->
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" VerticalAlignment="Top" Padding="10,2" MinHeight="0" FontSize="12" Click="AdvancedSettings_Click"
+                                        Content="{Binding [Settings_Advanced], Source={x:Static local:Loc.Instance}}"
+                                        ToolTip="{Binding [Settings_AdvancedTip], Source={x:Static local:Loc.Instance}}"/>
+                                <TextBlock Text="{Binding [Settings_Header], Source={x:Static local:Loc.Instance}}" Style="{StaticResource SectionHeaderStyle}"/>
+                            </DockPanel>
 
                             <TextBlock TextWrapping="Wrap" Text="{Binding [Monitor_Label], Source={x:Static local:Loc.Instance}}" Margin="0,0,0,4"/>
                             <ComboBox x:Name="MonitorCombo" HorizontalAlignment="Stretch" SelectionChanged="MonitorCombo_SelectionChanged"/>
