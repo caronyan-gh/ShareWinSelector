@@ -417,9 +417,11 @@ public partial class MainWindow : Window
         // この見張り自体が遅れた（スリープからの復帰、UI が忙しかった）ときは、描画も同じだけ遅れて見えるので 1 回見送る
         if (gap > TimeSpan.FromSeconds(3)) return;
         if (_shuttingDown || _compositor is not { } compositor) return;
+        // 取り込みの開始・停止が長く待たされている（描画は止まらないが、手がかりとして 1 件につき 1 回だけ残す）
+        foreach (var report in compositor.TakeSlowCaptureReports(RenderStallLimit)) Log.Error(report);
         var stalled = compositor.StalledFor;
         if (stalled < RenderStallLimit) return;
-        string state = $"{compositor.Stage}、共有 {_selected.Count} 個、R {compositor.RemoteMode}、一時停止 {compositor.Paused}、子として送信 {compositor.FrameSink is not null}";
+        string state = $"{compositor.StageText}、共有 {_selected.Count} 個、R {compositor.RemoteMode}、一時停止 {compositor.Paused}、子として送信 {compositor.FrameSink is not null}";
         // 作り直しても止まり続けるなら、止まった描画（と握ったままの資源）を増やし続けないよう、やめる
         if (++_stallRebuilds > MaxStallRebuilds)
         {

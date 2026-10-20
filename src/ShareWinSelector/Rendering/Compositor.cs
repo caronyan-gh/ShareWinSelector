@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Numerics;
 using ShareWinSelector.Capture;
@@ -29,6 +30,8 @@ internal sealed class Compositor : IDisposable
         public volatile WindowCapture Capture = capture;
         /// <summary>ユーザーが選んだのではなく、ポップアップとして自動追加されたもの。</summary>
         public bool IsAuto { get; } = isAuto;
+        /// <summary>ログ用の、ウィンドウのクラス名とアプリ名（止めるときにはウィンドウが消えていて取れないことがあるので、始めたときに取っておく）。</summary>
+        public string Label { get; init; } = "";
         /// <summary>キャプチャ対象が閉じられた（WGC の Closed）。以後は描かず、次のフレームで外す。</summary>
         public volatile bool Dead;
         /// <summary>上から隠す量（ウィンドウの DPI 基準の DIP）。タブ名などを相手に見せないため。</summary>
@@ -59,7 +62,7 @@ internal sealed class Compositor : IDisposable
     private Native.RECT _canvas;
     private bool _captureCursor = true;
     private volatile bool _includePopups = true;
-    // キャプチャ作成に失敗したポップアップ（消えるまで再試行しない）。描画スレッド専用
+    // キャプチャ作成に失敗したポップアップ（消えるまで再試行しない）。_popupGate で守る
     private readonly HashSet<IntPtr> _failedPopups = [];
     private readonly uint _ownPid = (uint)Environment.ProcessId;
 
@@ -81,28 +84,61 @@ internal sealed class Compositor : IDisposable
     /// <summary>描画スレッドが今している処理（止まったときに、どこで止まったかをログに出す）。</summary>
     public enum RenderStage { Idle, PullFrames, DrawOrder, WaitLock, RemoteFrame, Draw, ReadBack, Present, Sink }
     private volatile RenderStage _stage;
-    // 今の処理を始めた時刻と、描画の 1 周を最後に始めた時刻（Stopwatch のタイムスタンプ）
+    // 今の処理の中の細かい手順と、そのとき見ていたウィンドウ（描画スレッドだけが書く）
+    private volatile string _detail = "";
+    private volatile nint _detailHwnd;
+    // 今の手順を始めた時刻と、描画の 1 周を最後に始めた時刻（Stopwatch のタイムスタンプ）
     private long _stageStart, _beat = Stopwatch.GetTimestamp();
-    // 1 つの処理にこれより長くかかったら、戻ってきたときにログに残す
+    // 1 つの手順にこれより長くかかったら、戻ってきたときにログに残す
     private static readonly TimeSpan SlowStage = TimeSpan.FromSeconds(1);
     // 止めるときに描画スレッドを待つ長さ。戻らなければ待たずに進む（終了や作り直しを止めない）
     private static readonly TimeSpan CloseWait = TimeSpan.FromSeconds(2);
+    // 止めるときにポップアップの専用スレッドを待つ長さ（終了全体が 5 秒に収まるように短め）
+    private static readonly TimeSpan PopupCloseWait = TimeSpan.FromSeconds(1);
 
     /// <summary>描画スレッドが今している処理。</summary>
     public RenderStage Stage => _stage;
 
+    /// <summary>描画スレッドが今している処理と手順、見ているウィンドウ（ログ用。例: 「DrawOrder/IsPopup、窓 #32770（mmc）」）。</summary>
+    public string StageText => Describe(_stage, _detail, _detailHwnd);
+
     /// <summary>描画の 1 周を最後に始めてからの時間（ふだんは 1/30 秒ほど。長ければ描画が止まっている）。</summary>
     public TimeSpan StalledFor => Stopwatch.GetElapsedTime(Interlocked.Read(ref _beat));
 
-    /// <summary>描画スレッドの今の処理を記録する（前の処理に時間がかかっていたらログに残す）。</summary>
-    private void Enter(RenderStage stage)
+    /// <summary>描画スレッドの今の処理を記録する（前の手順に時間がかかっていたらログに残す）。</summary>
+    private void Enter(RenderStage stage) => Mark(stage, "", 0);
+
+    /// <summary>今の処理の中の手順と、見ているウィンドウを記録する（前の手順に時間がかかっていたらログに残す）。</summary>
+    private void Mark(string detail, nint hwnd = 0) => Mark(_stage, detail, hwnd);
+
+    private void Mark(RenderStage stage, string detail, nint hwnd)
     {
         long now = Stopwatch.GetTimestamp();
         var took = Stopwatch.GetElapsedTime(_stageStart, now);
         if (_stage != RenderStage.Idle && took >= SlowStage)
-            Log.Error($"描画の {_stage} に {took.TotalSeconds:F1} 秒かかりました");
+            Log.Error($"描画の {Describe(_stage, _detail, _detailHwnd)} に {took.TotalSeconds:F1} 秒かかりました");
         _stage = stage;
+        _detail = detail;
+        _detailHwnd = hwnd;
         _stageStart = now;
+    }
+
+    private static string Describe(RenderStage stage, string detail, nint hwnd) =>
+        (detail.Length == 0 ? stage.ToString() : $"{stage}/{detail}") + (hwnd == 0 ? "" : "、窓 " + DescribeWindow(hwnd));
+
+    /// <summary>ウィンドウのクラス名とアプリ名（ログ用。タイトルは書かない）。</summary>
+    internal static string DescribeWindow(nint hwnd)
+    {
+        string cls = Native.GetClassName(hwnd);
+        string app = "?";
+        try
+        {
+            Native.GetWindowThreadProcessId(hwnd, out uint pid);
+            using var p = Process.GetProcessById((int)pid);
+            app = p.ProcessName;
+        }
+        catch { /* 終わったプロセスなど */ }
+        return $"{(cls.Length == 0 ? "?" : cls)}（{app}）";
     }
 
     // 何も変わっていないフレームは描き直さない。ただし会議ソフトが「止まった」と見なさないよう、この間隔では必ず描く
@@ -165,6 +201,8 @@ internal sealed class Compositor : IDisposable
             throw;
         }
 
+        _popupThread = new Thread(PopupLoop) { IsBackground = true, Name = "Compositor popups" };
+        _popupThread.Start();
         _renderThread = new Thread(RenderLoop) { IsBackground = true, Name = "Compositor" };
         _renderThread.Start();
     }
@@ -215,7 +253,7 @@ internal sealed class Compositor : IDisposable
                 Hook(s, fresh);
                 var old = s.Capture;
                 s.Capture = fresh;
-                old.Dispose();
+                StopCaptureInBackground(s.Label, old);
             }
         }
     }
@@ -296,18 +334,23 @@ internal sealed class Compositor : IDisposable
     {
         var capture = new WindowCapture(_device, identity.Handle, _captureCursor);
         // クロップは描き始める前に決めておく（最初のフレームでタブ名が映らないように）
-        var source = new Source(identity, capture, isAuto) { CropTopDip = (float)Math.Max(0, cropTopDip), Hidden = hidden };
+        var source = new Source(identity, capture, isAuto)
+        {
+            CropTopDip = (float)Math.Max(0, cropTopDip),
+            Hidden = hidden,
+            Label = DescribeWindow(identity.Handle),
+        };
         Hook(source, capture);
         lock (_device.SyncRoot)
         {
-            // UI スレッドと描画スレッドが同時に追加した場合は先勝ち
-            if (_sources.TryAdd(identity.Handle, source))
+            // UI スレッドとポップアップの専用スレッドが同時に追加した場合は先勝ち。止めたあとには足さない
+            if (!_disposed && _sources.TryAdd(identity.Handle, source))
             {
                 _dirty = true;
                 return;
             }
         }
-        capture.Dispose();
+        StopCaptureInBackground(source.Label, capture);
     }
 
     /// <summary>キャプチャのフレームと「閉じた」通知を、このソースにつなぐ。</summary>
@@ -324,18 +367,85 @@ internal sealed class Compositor : IDisposable
         };
     }
 
-    /// <summary>キャプチャ対象を外す（UI スレッド）。</summary>
+    /// <summary>キャプチャ対象を外す（UI スレッド・描画スレッド）。すぐ描かれなくなり、キャプチャの停止は別のスレッドで行う。</summary>
     public void RemoveWindow(IntPtr hwnd)
     {
         Source? source;
         lock (_device.SyncRoot)
         {
             if (!_sources.Remove(hwnd, out source)) return;
+            // 外したソースには、フレームが届いても写さない（OnFrame が _sources を確かめる）ので、絵はここで捨ててよい
+            source.DisposeResources();
         }
         _dirty = true;
-        // フレームハンドラがロック待ちの可能性があるので、キャプチャ停止はロックの外で
-        source.Capture.Dispose();
-        lock (_device.SyncRoot) source.DisposeResources();
+        // フレームハンドラがロック待ちの可能性があるので、キャプチャ停止はロックの外で。
+        // 閉じる呼び出しが戻らない環境とわかったら、メニュー等のセッションは閉じずに持っておく
+        StopCaptureInBackground(source.Label, source.Capture, keepSession: source.IsAuto && _closeHangs);
+    }
+
+    // --- キャプチャの停止（1 件ずつ使い捨てのスレッドで） ---
+    // 消えたウィンドウ（閉じたメニューなど）のキャプチャを止める呼び出しが、リモート デスクトップの中では戻ってこないことがある。
+    // 呼んだスレッド（描画・UI・ポップアップの専用スレッド）ごと止まらないよう、1 件ずつ別のスレッドで止め、戻ってこないものは置いていく
+    private sealed class StopJob(string label, WindowCapture capture)
+    {
+        public string Label { get; } = label;
+        public WindowCapture Capture { get; } = capture;
+        public long Start { get; } = Stopwatch.GetTimestamp();
+        /// <summary>「終わりません」をもうログに出したか。</summary>
+        public bool Reported;
+    }
+    // 終わっていない停止（作り直した合成器の分も含めて、プロセス全体で数える）
+    private static readonly ConcurrentDictionary<StopJob, byte> _stops = new();
+    // 終わっていない停止がこれだけたまったら、新しいポップアップの取り込みを始めない（止まったスレッドを増やし続けないように。起動し直すまで）
+    private const int MaxPendingStops = 20;
+    private static int _popupsSuspendedLogged;
+
+    // 一度でもセッションを閉じる呼び出しが戻らなかったか（この起動の間ずっと）。そうなったら、メニュー等は開け閉めのたびに
+    // 止まるので、以後メニュー等のセッションは閉じずに持っておく（フレーム置き場は返す）。手放すと後片付けの係が閉じようとして止まる
+    private static volatile bool _closeHangs;
+    private static readonly ConcurrentQueue<object> _keptSessions = new();
+    // 持っておくセッションがこれだけたまったら、メニュー等の新しい取り込みをやめる（起動し直すまで）
+    private const int MaxKeptSessions = 500;
+
+    /// <summary>メニュー等の新しい取り込みを、もうやめているか（停止がたまりすぎた）。</summary>
+    private static bool PopupsSuspended => _stops.Count >= MaxPendingStops || _keptSessions.Count >= MaxKeptSessions;
+
+    // 終了時に「終わっていない」と数える、止め始めてからの長さ（止め始めたばかりのものは数えない）
+    private static readonly TimeSpan PendingStopAge = TimeSpan.FromSeconds(2);
+
+    /// <summary>終わっていない停止と、閉じずに持っているセッションの件数（終了時のログ用）。どちらも無ければ null。</summary>
+    public static string? DescribePendingStops()
+    {
+        var jobs = _stops.Keys.Where(j => Stopwatch.GetElapsedTime(j.Start) >= PendingStopAge).ToList();
+        int kept = _keptSessions.Count;
+        if (jobs.Count == 0 && kept == 0) return null;
+        var windows = jobs.GroupBy(j => j.Label).Select(g => g.Count() == 1 ? g.Key : $"{g.Key}×{g.Count()}");
+        string oldest = jobs.Count == 0 ? "" : $"、いちばん古いもので {jobs.Max(j => Stopwatch.GetElapsedTime(j.Start)).TotalSeconds:F0} 秒";
+        return $"終わっていない取り込みの停止 {jobs.Count} 件（{string.Join("、", windows)}{oldest}）、閉じずに持っていたセッション {kept} 件";
+    }
+
+    private void StopCaptureInBackground(string label, WindowCapture capture, bool keepSession = false)
+    {
+        if (keepSession)
+        {
+            // セッションは閉じないので戻ってくる（フレーム置き場を閉じるだけ）。それでも呼んだスレッドは待たせない
+            new Thread(() =>
+            {
+                try { _keptSessions.Enqueue(capture.DisposeKeepingSession()); }
+                catch (Exception ex) { Log.Error($"取り込みの停止に失敗（窓 {label}）", ex); }
+            }) { IsBackground = true, Name = "Capture stop" }.Start();
+            return;
+        }
+        var job = new StopJob(label, capture);
+        _stops[job] = 0;
+        new Thread(() =>
+        {
+            try { capture.Dispose(); }
+            catch (Exception ex) { Log.Error($"取り込みの停止に失敗（窓 {label}）", ex); }
+            _stops.TryRemove(job, out _);
+            var took = Stopwatch.GetElapsedTime(job.Start);
+            if (took >= SlowStage) Log.Error($"取り込みの停止に {took.TotalSeconds:F1} 秒かかりました（窓 {label}）");
+        }) { IsBackground = true, Name = "Capture stop" }.Start();
     }
 
     public void RemoveAll()
@@ -579,7 +689,10 @@ internal sealed class Compositor : IDisposable
         lock (_device.SyncRoot) snapshot = [.. _sources.Values];
         bool any = false;
         foreach (var s in snapshot)
+        {
+            Mark("Deliver", s.Hwnd);
             if (!s.Dead && s.Capture.DeliverPending()) any = true;
+        }
         return any;
     }
 
@@ -644,6 +757,7 @@ internal sealed class Compositor : IDisposable
         var deadAuto = new List<IntPtr>();
         foreach (var s in snapshot)
         {
+            Mark("IsAlive", s.Hwnd);
             bool alive = !s.Dead && s.Identity.IsAlive();
             if (s.IsAuto)
             {
@@ -669,9 +783,11 @@ internal sealed class Compositor : IDisposable
         var wantedPopups = new HashSet<IntPtr>();
 
         // 選択ウィンドウの UI スレッド（右クリックメニュー等はここで作られる）と、画面上の位置
+        Mark("Shell");
         var context = new PopupContext(manual, ShellProcessId());
         foreach (var h in manual)
         {
+            Mark("Selected", h);
             context.Threads.Add(Native.GetWindowThreadProcessId(h, out _));
             if (!Native.TryGetFrameBounds(h, out var r)) continue;
             context.Bounds.Add(r);
@@ -685,19 +801,25 @@ internal sealed class Compositor : IDisposable
         Native.EnumWindows((hWnd, _) =>
         {
             // 見えていないもの（数百ある）は、重いポップアップ判定より先に外す
+            Mark("Visible", hWnd);
             if (!Native.IsWindowVisible(hWnd) || Native.IsIconic(hWnd)) return true;
             bool isManual = manual.Contains(hWnd);
+            if (!isManual && includePopups) Mark("IsPopup", hWnd);
             bool isPopup = !isManual && includePopups && IsPopupOfSelected(hWnd, context);
             if (!isManual && !isPopup) return true;
             // キャプチャを禁止しているポップアップは、黒い四角で下を隠すより描かない方がまし
+            Mark("Affinity", hWnd);
             if (isPopup && Native.BlocksCapture(hWnd)) return true;
             // 別の仮想デスクトップなど、自分の画面に出ていないものは相手にも見せない
+            Mark("Cloaked", hWnd);
             if (Native.IsCloaked(hWnd)) return true;
+            Mark("Bounds", hWnd);
             if (!Native.TryGetFrameBounds(hWnd, out var rc) || rc.Width <= 0 || rc.Height <= 0) return true;
             // クロップで隠している部分（タブ・アドレスバー）から出てきたポップアップは映さない。
             // タブのホバーカード（別のタブの名前と縮小画像）やアドレスバーの入力候補（閲覧履歴）が漏れないように
             if (isPopup && StartsInHiddenBand(rc, context.HiddenBands)) return true;
             if (isPopup) wantedPopups.Add(hWnd);
+            Mark("Dpi", hWnd);
             int cropPx = isManual && cropDip.TryGetValue(hWnd, out float dip) ? CropPx(hWnd, dip, rc.Height) : 0;
             order.Add((hWnd, rc, cropPx));
             return true;
@@ -705,18 +827,123 @@ internal sealed class Compositor : IDisposable
         order.Reverse();
 
         // 消えたポップアップを外す
+        Mark("Popups");
         foreach (var h in auto)
             if (!wantedPopups.Contains(h)) RemoveWindow(h);
-        _failedPopups.IntersectWith(wantedPopups);
 
         // 新しく出たポップアップのキャプチャを始める（最初のフレームが来るまでは描かれない）
-        foreach (var h in wantedPopups)
+        bool suspended = PopupsSuspended;
+        if (suspended && wantedPopups.Count > 0 && Interlocked.Exchange(ref _popupsSuspendedLogged, 1) == 0)
+            Log.Error($"取り込みの停止が {_stops.Count} 件終わらず、閉じずに持っているセッションが {_keptSessions.Count} 件あるので、"
+                + "メニュー等の新しい取り込みをやめます（起動し直すと戻ります）");
+        lock (_popupGate)
         {
-            if (auto.Contains(h) || _failedPopups.Contains(h)) continue;
-            try { AddWindowCore(WindowIdentity.Of(h), isAuto: true); }
-            catch { _failedPopups.Add(h); }
+            _failedPopups.IntersectWith(wantedPopups);
+            foreach (var h in suspended ? [] : wantedPopups)
+            {
+                if (auto.Contains(h) || _failedPopups.Contains(h) || !_popupStarting.Add(h)) continue;
+                var identity = WindowIdentity.Of(h);
+                if (!EnqueuePopupJob("開始", h, () => StartPopup(identity))) _popupStarting.Remove(h);
+            }
         }
         return order;
+    }
+
+    // --- ポップアップ（選択アプリのメニュー・ダイアログ等）のキャプチャの開始と停止 ---
+    // WGC のキャプチャを始める呼び出しは、まれに長く待たされることがある。描画スレッドで待つと共有の映像ごと止まるので、
+    // ポップアップの分はこの専用スレッドで順に行う（待たされても、そのポップアップが映るのが遅れるだけで、描画は続く）。
+    // 止める方は、戻ってこないことがあるので 1 件ずつ別のスレッドで行う（StopCaptureInBackground）
+    private readonly BlockingCollection<(string What, nint Hwnd, Action Run)> _popupJobs = new();
+    private readonly Thread _popupThread;
+    private readonly object _popupGate = new();
+    // 開始を頼んで、まだ終わっていないポップアップ（同じものを何度も頼まない）。_popupGate で守る
+    private readonly HashSet<IntPtr> _popupStarting = [];
+    // ポップアップの専用スレッドが今している仕事と、そのウィンドウ・始めた時刻（止まったままのときにログに出す）
+    private volatile string? _popupJobWhat;
+    private volatile nint _popupJobHwnd;
+    private long _popupJobStart;
+
+    /// <summary>ポップアップの専用スレッドに仕事を頼む。止めたあとなら頼まずに false。</summary>
+    private bool EnqueuePopupJob(string what, nint hwnd, Action run)
+    {
+        try { return _popupJobs.TryAdd((what, hwnd, run)); }
+        catch (InvalidOperationException) { return false; } // 止めたあと（CompleteAdding 済み）
+    }
+
+    private void PopupLoop()
+    {
+        foreach (var job in _popupJobs.GetConsumingEnumerable())
+        {
+            _popupJobHwnd = job.Hwnd;
+            Interlocked.Exchange(ref _popupJobStart, Stopwatch.GetTimestamp());
+            _popupJobReported = false;
+            _popupJobWhat = job.What;
+            try { job.Run(); }
+            catch (Exception ex) { Log.Error($"メニュー等の取り込みの{job.What}に失敗", ex); }
+            _popupJobWhat = null;
+            var took = Stopwatch.GetElapsedTime(Interlocked.Read(ref _popupJobStart));
+            if (took >= SlowStage)
+                Log.Error($"メニュー等の取り込みの{job.What}に {took.TotalSeconds:F1} 秒かかりました（窓 {DescribeWindow(job.Hwnd)}）");
+        }
+    }
+
+    /// <summary>ポップアップの専用スレッドの今の仕事の説明（ログ用。していなければ null）。</summary>
+    private string? DescribePopupJob()
+    {
+        var what = _popupJobWhat;
+        if (what is null) return null;
+        var elapsed = Stopwatch.GetElapsedTime(Interlocked.Read(ref _popupJobStart));
+        return $"メニュー等の取り込みの{what}が {elapsed.TotalSeconds:F0} 秒終わりません（窓 {DescribeWindow(_popupJobHwnd)}）";
+    }
+
+    /// <summary>
+    /// キャプチャの開始・停止のうち、atLeast 以上終わっていないものの説明（ログ用）。同じものは 1 回だけ返す。
+    /// 描画は止まらないが、メニュー等が映らない・止まらない手がかりとして残す。
+    /// </summary>
+    public List<string> TakeSlowCaptureReports(TimeSpan atLeast)
+    {
+        var reports = new List<string>();
+        if (!_popupJobReported && _popupJobWhat is not null
+            && Stopwatch.GetElapsedTime(Interlocked.Read(ref _popupJobStart)) >= atLeast
+            && DescribePopupJob() is { } popup)
+        {
+            _popupJobReported = true;
+            reports.Add(popup);
+        }
+        foreach (var job in _stops.Keys)
+        {
+            var elapsed = Stopwatch.GetElapsedTime(job.Start);
+            if (job.Reported || elapsed < atLeast) continue;
+            job.Reported = true;
+            if (!_closeHangs)
+            {
+                _closeHangs = true;
+                reports.Add("取り込みのセッションを閉じる呼び出しが戻らないので、この起動の間、メニュー等のセッションは閉じずに持っておきます");
+            }
+            reports.Add($"取り込みの停止が {elapsed.TotalSeconds:F0} 秒終わりません（窓 {job.Label}、{job.Capture.DescribeSteps()}、終わっていない停止 {_stops.Count} 件）");
+        }
+        return reports;
+    }
+
+    // 今のポップアップの仕事の「終わりません」をもうログに出したか
+    private volatile bool _popupJobReported;
+
+    /// <summary>ポップアップのキャプチャを始める（専用スレッド）。失敗したら、消えるまで再試行しない。</summary>
+    private void StartPopup(WindowIdentity identity)
+    {
+#if DEBUG
+        // デバッグ: SWS_SIMULATE_POPUP_DELAY_SEC=<秒> で、ポップアップのキャプチャの開始を毎回その秒数だけ待たせる
+        if (int.TryParse(Environment.GetEnvironmentVariable("SWS_SIMULATE_POPUP_DELAY_SEC"), out int delay))
+            Thread.Sleep(TimeSpan.FromSeconds(delay));
+#endif
+        try
+        {
+            // 順番を待つ間に消えたメニュー等は、もう始めない（すぐ止めることになり、止める処理を増やすだけなので）
+            if (!_disposed && identity.IsAlive() && Native.IsWindowVisible(identity.Handle))
+                AddWindowCore(identity, isAuto: true);
+        }
+        catch { lock (_popupGate) _failedPopups.Add(identity.Handle); }
+        finally { lock (_popupGate) _popupStarting.Remove(identity.Handle); }
     }
 
     /// <summary>ポップアップ判定に使う、そのフレームの選択ウィンドウの情報。</summary>
@@ -787,6 +1014,7 @@ internal sealed class Compositor : IDisposable
         if (pid == _ownPid || !ctx.Threads.Contains(tid)) return false;
         string cls = Native.GetClassName(hWnd);
         if (ExcludedPopupClasses.Contains(cls)) return false;
+        Mark("Title", hWnd);
         if (IsMainWindowLike(hWnd)) return false; // 同じスレッドの別のメインウィンドウは映さない
 
         // シェル（エクスプローラー）はタスクバーやタスク切り替えなど他アプリの中身を出すウィンドウを
@@ -959,7 +1187,7 @@ internal sealed class Compositor : IDisposable
             ReleaseAndThen(then);
             return true;
         }
-        Log.Error($"描画が止まったままです（{_stage}、{StalledFor.TotalSeconds:F0} 秒）。待たずに進みます");
+        Log.Error($"描画が止まったままです（{StageText}、{StalledFor.TotalSeconds:F0} 秒）。待たずに進みます");
         new Thread(() =>
         {
             _renderThread.Join();
@@ -978,6 +1206,10 @@ internal sealed class Compositor : IDisposable
 
     private void Release()
     {
+        // ポップアップの専用スレッドには、頼んである分を済ませて終わってもらう（待たされていたら、待たずに進む）
+        _popupJobs.CompleteAdding();
+        if (!_popupThread.Join(PopupCloseWait))
+            Log.Error(DescribePopupJob() ?? "メニュー等の取り込みの専用スレッドが終わりません。待たずに進みます");
         RemoveAll();
         lock (_device.SyncRoot)
         {

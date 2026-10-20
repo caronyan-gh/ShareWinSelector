@@ -72,7 +72,7 @@ public partial class App : Application
         // 最前面で出したまま、メイン画面の準備ができるまで残す
         _splash = new SplashScreen("Assets/splash.png");
         _splash.Show(autoClose: false, topMost: true);
-        Log.Info($"起動 v{ShareWinSelector.MainWindow.FullVersion}");
+        Log.Info($"起動 v{ShareWinSelector.MainWindow.FullVersion}（Windows {WindowsBuild()}）");
         // 想定外の例外で会議中に落ちないよう、UI スレッドの例外はログに残して続行する
         // （設定の読み込みより先に登録して、起動途中の失敗もログに残す）
         DispatcherUnhandledException += OnDispatcherUnhandledException;
@@ -125,8 +125,27 @@ public partial class App : Application
     /// <summary>終了するときに設定とログのフォルダを消す（「設定を削除して終了」）。</summary>
     internal static bool DeleteDataOnExit { get; set; }
 
+    /// <summary>Windows のビルド番号（例: 26100.2894、24H2）。ログ用。取れなければ OS のバージョンだけ。</summary>
+    private static string WindowsBuild()
+    {
+        var v = Environment.OSVersion.Version;
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            var ubr = key?.GetValue("UBR");
+            var display = key?.GetValue("DisplayVersion") as string;
+            return $"{v.Build}.{ubr ?? 0}{(string.IsNullOrEmpty(display) ? "" : "、" + display)}";
+        }
+        catch
+        {
+            return v.ToString();
+        }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
+        // 戻ってこなかった取り込みの停止があれば、手がかりとして残す
+        if (ShareWinSelector.Rendering.Compositor.DescribePendingStops() is { } pending) Log.Error(pending);
         Log.Info("終了");
         if (DeleteDataOnExit)
         {
