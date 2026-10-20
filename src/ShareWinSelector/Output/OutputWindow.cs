@@ -46,7 +46,11 @@ internal sealed class OutputWindow : Window
     private readonly int _initialClientWidth = DefaultClientWidth;
     private bool _pendingMaximize;
 
-    public SwapChainHost Host { get; } = new();
+    /// <summary>描画先の子 HWND。描画が止まったまま戻らないときは <see cref="ReplaceHost"/> で別のものに替える。</summary>
+    public SwapChainHost Host { get; private set; } = new();
+
+    /// <summary>描画先（子 HWND）の大きさ（物理ピクセル）が変わった。描画先を替えても同じイベントで知らせる。</summary>
+    public event Action<int, int>? PixelSizeChanged;
 
     /// <summary>ユーザーが移動・サイズ変更・最大化/戻すをし終えた（保存の合図）。</summary>
     public event Action? LayoutChangedByUser;
@@ -83,6 +87,24 @@ internal sealed class OutputWindow : Window
             UseAeroCaptionButtons = false,
         });
         Content = Host;
+        Host.PixelSizeChanged += OnHostPixelSizeChanged;
+    }
+
+    private void OnHostPixelSizeChanged(int width, int height) => PixelSizeChanged?.Invoke(width, height);
+
+    /// <summary>
+    /// 描画先（子 HWND）を新しいものに替える。止まったままの古い描画が古い子 HWND を握っていると、
+    /// 同じ子 HWND には新しく描けないので、作り直す前に呼ぶ。
+    /// </summary>
+    public void ReplaceHost()
+    {
+        var old = Host;
+        old.PixelSizeChanged -= OnHostPixelSizeChanged;
+        Host = new SwapChainHost();
+        Host.PixelSizeChanged += OnHostPixelSizeChanged;
+        Content = Host;
+        UpdateLayout(); // 子 HWND をここで作る（このあとすぐ描画を作り直すので）
+        old.Dispose();
     }
 
     protected override void OnSourceInitialized(EventArgs e)

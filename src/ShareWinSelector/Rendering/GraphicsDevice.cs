@@ -41,6 +41,7 @@ internal sealed class GraphicsDevice : IDisposable
             D2DFactory = D2D1.D2D1CreateFactory<ID2D1Factory1>(FactoryType.MultiThreaded);
             D2DDevice = D2DFactory.CreateDevice(DxgiDevice);
             WinRTDevice = CaptureInterop.CreateDirect3DDevice(DxgiDevice.NativePointer);
+            LogAdapter();
         }
         catch
         {
@@ -51,6 +52,22 @@ internal sealed class GraphicsDevice : IDisposable
             D3DContext.Dispose();
             D3DDevice.Dispose();
             throw;
+        }
+    }
+
+    /// <summary>使っている GPU の名前をログに残す（リモート デスクトップの中など、描画の不具合を調べるとき用）。</summary>
+    private void LogAdapter()
+    {
+        try
+        {
+            using var adapter = DxgiDevice.GetAdapter();
+            var d = adapter.Description;
+            string remote = System.Windows.SystemParameters.IsRemoteSession ? "、リモート デスクトップ" : "";
+            Log.Info($"GPU: {d.Description}（{d.VendorId:X4}:{d.DeviceId:X4}、{D3DDevice.FeatureLevel}{remote}）");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("GPU の名前を取れませんでした", ex);
         }
     }
 

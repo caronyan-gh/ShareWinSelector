@@ -223,6 +223,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _listTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _monitorFollowTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer _displayChangeTimer = new() { Interval = TimeSpan.FromMilliseconds(800) };
+    // 描画が止まっていないかの見張り（止まったら作り直す）
+    private readonly DispatcherTimer _renderWatchTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private long _renderWatchLast = System.Diagnostics.Stopwatch.GetTimestamp();
+    private static readonly TimeSpan RenderStallLimit = TimeSpan.FromSeconds(5);
     private bool _shuttingDown;
 
     public MainWindow()
@@ -269,6 +273,7 @@ public partial class MainWindow : Window
         _undoTimer.Tick += (_, _) => HideUndo();
         // 表示設定の変更は連続で来るので落ち着いてから 1 回だけ処理する
         _displayChangeTimer.Tick += (_, _) => { _displayChangeTimer.Stop(); OnDisplaySettingsChanged(); };
+        _renderWatchTimer.Tick += (_, _) => CheckRenderStall();
     }
 
     private MonitorInfo? CurrentMonitor => MonitorCombo.SelectedItem as MonitorInfo;
@@ -347,7 +352,7 @@ public partial class MainWindow : Window
             App.Settings.Save();
         };
         _output.Show();
-        _output.Host.PixelSizeChanged += (pw, ph) => _compositor?.Resize(pw, ph);
+        _output.PixelSizeChanged += (pw, ph) => _compositor?.Resize(pw, ph);
         Placement_Checked(this, e); // 保存されていた配置を適用
         CreatePipeline(monitor);
         CreateOverlay(monitor);
@@ -359,6 +364,7 @@ public partial class MainWindow : Window
         CloseSplashAndApplyPin();
         _listTimer.Start();
         _monitorFollowTimer.Start();
+        _renderWatchTimer.Start();
         ApplyRemoteSettings();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChangedRaw;
     }
@@ -381,21 +387,65 @@ public partial class MainWindow : Window
         ApplyBackground(); // デバイスを作り直したときも背景を載せ直す
     }
 
-    private void DisposePipeline()
+    /// <summary>
+    /// 合成器とデバイスを捨てる。描画が止まったまま戻らなければ待たずに false を返す
+    /// （後始末は描画が戻ったときに行う。それまで出力ウィンドウの描画先は使えない）。
+    /// </summary>
+    private bool DisposePipeline()
     {
-        try { _compositor?.Dispose(); } catch (Exception ex) { Log.Error("合成器の破棄に失敗", ex); }
-        try { _device?.Dispose(); } catch (Exception ex) { Log.Error("デバイスの破棄に失敗", ex); }
+        var compositor = _compositor;
+        var device = _device;
         _compositor = null;
         _device = null;
+        void DisposeDevice()
+        {
+            try { device?.Dispose(); } catch (Exception ex) { Log.Error("デバイスの破棄に失敗", ex); }
+        }
+        if (compositor is not null) return compositor.Close(DisposeDevice);
+        DisposeDevice();
+        return true;
     }
 
+    /// <summary>
+    /// 描画が止まっていないか見る（1 秒おき）。<see cref="RenderStallLimit"/> 以上止まっていたら作り直す。
+    /// </summary>
+    private void CheckRenderStall()
+    {
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var gap = System.Diagnostics.Stopwatch.GetElapsedTime(_renderWatchLast, now);
+        _renderWatchLast = now;
+        // この見張り自体が遅れた（スリープからの復帰、UI が忙しかった）ときは、描画も同じだけ遅れて見えるので 1 回見送る
+        if (gap > TimeSpan.FromSeconds(3)) return;
+        if (_shuttingDown || _compositor is not { } compositor) return;
+        var stalled = compositor.StalledFor;
+        if (stalled < RenderStallLimit) return;
+        string state = $"{compositor.Stage}、共有 {_selected.Count} 個、R {compositor.RemoteMode}、一時停止 {compositor.Paused}、子として送信 {compositor.FrameSink is not null}";
+        // 作り直しても止まり続けるなら、止まった描画（と握ったままの資源）を増やし続けないよう、やめる
+        if (++_stallRebuilds > MaxStallRebuilds)
+        {
+            Log.Error($"描画が {stalled.TotalSeconds:F0} 秒止まっています（{state}）。作り直しは {MaxStallRebuilds} 回までなので、もう作り直しません");
+            _renderWatchTimer.Stop();
+            return;
+        }
+        Log.Error($"描画が {stalled.TotalSeconds:F0} 秒止まっています（{state}）。作り直します");
+        RebuildPipeline("止まった描画から復旧");
+    }
+
+    // 描画が止まって作り直した回数（この起動で）
+    private int _stallRebuilds;
+    private const int MaxStallRebuilds = 3;
+
     /// <summary>GPU デバイス喪失（ドライバ更新・スリープ復帰等）から、選択状態を保ったまま復旧する。</summary>
-    private void RecoverFromDeviceLost()
+    private void RecoverFromDeviceLost() => RebuildPipeline("GPU デバイス喪失から復旧");
+
+    /// <summary>合成器とデバイスを、選択状態を保ったまま作り直す。</summary>
+    private void RebuildPipeline(string doneMessage)
     {
         if (_shuttingDown) return;
         StatusText.Text = Loc.T("Status_Recovering");
         var selected = _selected.Values.ToList();
-        DisposePipeline();
+        // 前の描画が止まったまま戻らないと、その描画先（子 HWND）には新しく描けないので、描画先も替える
+        if (!DisposePipeline()) _output?.ReplaceHost();
         try
         {
             CreatePipeline(CurrentMonitor ?? MonitorEnumerator.GetMonitors()[0]);
@@ -405,7 +455,7 @@ public partial class MainWindow : Window
             // GPU がまだ戻っていない。少し待って再試行
             Log.Error("パイプライン再作成に失敗。再試行します", ex);
             var retry = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            retry.Tick += (_, _) => { retry.Stop(); RecoverFromDeviceLost(); };
+            retry.Tick += (_, _) => { retry.Stop(); RebuildPipeline(doneMessage); };
             retry.Start();
             return;
         }
@@ -422,7 +472,7 @@ public partial class MainWindow : Window
                 RemoveSelected(identity.Handle);
             }
         }
-        Log.Info($"GPU デバイス喪失から復旧（{_selected.Count} 個再開）");
+        Log.Info($"{doneMessage}（{_selected.Count} 個再開）");
         UpdateStatus();
     }
 
@@ -1026,9 +1076,19 @@ public partial class MainWindow : Window
         Close();
     }
 
+    // 終了の処理がこれより長くかかったら、プロセスごと終わらせる（何かが止まったままでも、タスク マネージャーを使わずに済むように）
+    private static readonly TimeSpan ShutdownLimit = TimeSpan.FromSeconds(5);
+
     private void Shutdown()
     {
         _shuttingDown = true;
+        new Thread(() =>
+        {
+            Thread.Sleep(ShutdownLimit);
+            Log.Error($"終了の処理が {ShutdownLimit.TotalSeconds:F0} 秒で終わらないので、強制終了します");
+            System.Diagnostics.Process.GetCurrentProcess().Kill();
+        }) { IsBackground = true, Name = "Shutdown guard" }.Start();
+        _renderWatchTimer.Stop();
         SaveWindowBounds();
         if (_output is not null) App.Settings.OutputWindow = _output.CaptureState();
         App.Settings.Save();

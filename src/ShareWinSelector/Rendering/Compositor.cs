@@ -78,6 +78,33 @@ internal sealed class Compositor : IDisposable
     private readonly Thread _renderThread;
     private volatile bool _running = true;
 
+    /// <summary>描画スレッドが今している処理（止まったときに、どこで止まったかをログに出す）。</summary>
+    public enum RenderStage { Idle, PullFrames, DrawOrder, WaitLock, RemoteFrame, Draw, ReadBack, Present, Sink }
+    private volatile RenderStage _stage;
+    // 今の処理を始めた時刻と、描画の 1 周を最後に始めた時刻（Stopwatch のタイムスタンプ）
+    private long _stageStart, _beat = Stopwatch.GetTimestamp();
+    // 1 つの処理にこれより長くかかったら、戻ってきたときにログに残す
+    private static readonly TimeSpan SlowStage = TimeSpan.FromSeconds(1);
+    // 止めるときに描画スレッドを待つ長さ。戻らなければ待たずに進む（終了や作り直しを止めない）
+    private static readonly TimeSpan CloseWait = TimeSpan.FromSeconds(2);
+
+    /// <summary>描画スレッドが今している処理。</summary>
+    public RenderStage Stage => _stage;
+
+    /// <summary>描画の 1 周を最後に始めてからの時間（ふだんは 1/30 秒ほど。長ければ描画が止まっている）。</summary>
+    public TimeSpan StalledFor => Stopwatch.GetElapsedTime(Interlocked.Read(ref _beat));
+
+    /// <summary>描画スレッドの今の処理を記録する（前の処理に時間がかかっていたらログに残す）。</summary>
+    private void Enter(RenderStage stage)
+    {
+        long now = Stopwatch.GetTimestamp();
+        var took = Stopwatch.GetElapsedTime(_stageStart, now);
+        if (_stage != RenderStage.Idle && took >= SlowStage)
+            Log.Error($"描画の {_stage} に {took.TotalSeconds:F1} 秒かかりました");
+        _stage = stage;
+        _stageStart = now;
+    }
+
     // 何も変わっていないフレームは描き直さない。ただし会議ソフトが「止まった」と見なさないよう、この間隔では必ず描く
     private static readonly TimeSpan IdleRedrawInterval = TimeSpan.FromMilliseconds(250);
     // 設定やサイズの変更など、次のフレームで必ず描き直してほしいとき true
@@ -485,12 +512,15 @@ internal sealed class Compositor : IDisposable
         while (_running)
         {
             var start = sw.Elapsed;
+            Interlocked.Exchange(ref _beat, Stopwatch.GetTimestamp());
             try
             {
                 // 各ウィンドウの最新フレームを受け取る（このときだけコピーするので、30 回/秒より多くは写さない）
+                Enter(RenderStage.PullFrames);
                 bool fresh = PullFrames();
                 // 子の画面を共有している間は、この PC のウィンドウは描かないので調べない。
                 // 重なり順を止めている間（まとめて最前面の最中）は、途中の並びを描かないよう前回の並びのまま描く
+                Enter(RenderStage.DrawOrder);
                 var order = _remoteMode ? [] : _holdOrder && _lastOrder.Count > 0 ? _lastOrder : GetDrawOrder();
                 bool changed = fresh || _dirty || !SameOrder(order, _lastOrder);
                 // 子として動いているときは、変わった絵を親へ渡す（間隔が来るまでは取っておいて、来たら渡す）
@@ -503,8 +533,10 @@ internal sealed class Compositor : IDisposable
                 {
                     _dirty = false;
                     (byte[] Pixels, int Width, int Height)? captured = null;
+                    Enter(RenderStage.WaitLock);
                     lock (_device.SyncRoot)
                     {
+                        Enter(RenderStage.RemoteFrame);
                         ApplyRemoteFrame();
                         captured = RenderCore(order, readBack: sinkDue);
                     }
@@ -514,6 +546,7 @@ internal sealed class Compositor : IDisposable
                     {
                         _sinkPending = false;
                         lastSink = start;
+                        Enter(RenderStage.Sink);
                         try { sink!(c.Pixels, c.Width, c.Height); }
                         catch (Exception ex) { Log.Error("合成した絵を渡せませんでした", ex); }
                     }
@@ -525,12 +558,13 @@ internal sealed class Compositor : IDisposable
                 // 同じエラーの連発でログを埋めない
                 if (consecutiveErrors++ == 0) Log.Error("描画エラー", ex);
             }
+            Enter(RenderStage.Idle);
 
             if (_device.IsDeviceLost || SimulateDeviceLost(sw.Elapsed))
             {
                 Log.Error($"GPU デバイスが失われました: {_device.D3DDevice.DeviceRemovedReason}");
                 _running = false;
-                DeviceLost?.Invoke();
+                if (!_disposed) DeviceLost?.Invoke();
                 return;
             }
             var remain = frameTime - (sw.Elapsed - start);
@@ -574,6 +608,22 @@ internal sealed class Compositor : IDisposable
         && Interlocked.Exchange(ref _simulatedDeviceLost, 1) == 0;
 #else
     private static bool SimulateDeviceLost(TimeSpan elapsed) => false;
+#endif
+
+    // デバッグ: SWS_SIMULATE_STALL_SEC=<秒>[,<止める秒>] で、プロセス内で 1 回だけ、Present の手前で描画を止める（既定 30 秒）
+#if DEBUG
+    private static int _simulatedStall;
+    private static readonly Stopwatch SimulateClock = Stopwatch.StartNew();
+
+    private static void SimulateStall()
+    {
+        var parts = (Environment.GetEnvironmentVariable("SWS_SIMULATE_STALL_SEC") ?? "").Split(',');
+        if (!int.TryParse(parts[0], out int sec) || SimulateClock.Elapsed.TotalSeconds < sec) return;
+        if (Interlocked.Exchange(ref _simulatedStall, 1) != 0) return;
+        int hold = parts.Length > 1 && int.TryParse(parts[1], out int h) ? h : 30;
+        Log.Info($"デバッグ: 描画を {hold} 秒止めます");
+        Thread.Sleep(TimeSpan.FromSeconds(hold));
+    }
 #endif
 
     /// <summary>
@@ -770,6 +820,7 @@ internal sealed class Compositor : IDisposable
         var targetSize = _target.PixelSize;
         int cw = Math.Max(_canvas.Width, 1), ch = Math.Max(_canvas.Height, 1);
 
+        Enter(RenderStage.Draw);
         _context.BeginDraw();
         _context.Transform = Matrix3x2.Identity;
         // キャンバス外（レターボックス部分）は濃いグレーで区別
@@ -815,11 +866,16 @@ internal sealed class Compositor : IDisposable
         _context.PopAxisAlignedClip();
         _context.EndDraw();
         // 出す（Present）とバックバッファの中身は保証されないので、その前に取り出す
+        if (readBack) Enter(RenderStage.ReadBack);
         var captured = readBack ? ReadBackBuffer() : null;
 #if DEBUG
         // デバッグ: 共有映像を画像に書き出す（リリース版には入れない）
         if (Environment.GetEnvironmentVariable("SWS_DUMP") is { } dumpPath && Environment.TickCount64 % 1000 < 40)
             DumpBackBuffer(dumpPath);
+#endif
+        Enter(RenderStage.Present);
+#if DEBUG
+        SimulateStall();
 #endif
         _swapChain.Present(0, PresentFlags.None);
         return captured;
@@ -884,11 +940,44 @@ internal sealed class Compositor : IDisposable
     }
 #endif
 
-    public void Dispose()
+    public void Dispose() => Close(null);
+
+    /// <summary>
+    /// 止めて後始末をし、then を呼ぶ。描画スレッドは <see cref="CloseWait"/> まで待つ。
+    /// それでも戻らなければ（描画が止まったまま）待たずに false を返し、後始末と then は、描画スレッドが戻ったときに
+    /// 別のスレッドで行う。その間、この合成器の描画先（子 HWND）は使えない。
+    /// </summary>
+    public bool Close(Action? then)
     {
         _disposed = true;
         _running = false;
-        _renderThread.Join();
+        // 戻ってきた古い描画から、作り直したあとの UI へ知らせが行かないように
+        SourceClosed = null;
+        DeviceLost = null;
+        if (_renderThread.Join(CloseWait))
+        {
+            ReleaseAndThen(then);
+            return true;
+        }
+        Log.Error($"描画が止まったままです（{_stage}、{StalledFor.TotalSeconds:F0} 秒）。待たずに進みます");
+        new Thread(() =>
+        {
+            _renderThread.Join();
+            Log.Info("止まっていた描画が戻ったので、後始末をします");
+            ReleaseAndThen(then);
+        }) { IsBackground = true, Name = "Compositor cleanup" }.Start();
+        return false;
+    }
+
+    private void ReleaseAndThen(Action? then)
+    {
+        try { Release(); }
+        catch (Exception ex) { Log.Error("合成器の破棄に失敗", ex); }
+        then?.Invoke();
+    }
+
+    private void Release()
+    {
         RemoveAll();
         lock (_device.SyncRoot)
         {
