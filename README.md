@@ -99,6 +99,10 @@ Click **More info** → **Run anyway**. Release builds are made by [GitHub Actio
 
 - With **Confirm before sharing** on, a picked window stays hidden until you press **Share** on the overlay. If you pick several windows, they are confirmed one by one.
 
+**Using it inside Remote Desktop (RDP)**
+
+- On some setups, Windows does not finish cleaning up the capture when a context menu or similar popup closes. Sharing keeps working, but after menus have been opened and closed several hundred times, menus and other popups stop showing for others. Restart ShareWinSelector to get them back.
+
 **Remote link (experimental)**
 
 Share the screen of another PC (the **child**), such as one you use over Remote Desktop (RDP), as one more monitor (**R**) of the PC you share from in the meeting (the **parent**).
