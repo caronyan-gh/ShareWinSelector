@@ -66,6 +66,14 @@ internal sealed class RemoteParent : IDisposable
     /// <summary>子が切れた、または別の子に替わった（セッション番号）。受け取る側のスレッドから通知。</summary>
     public event Action<long>? ChildDisconnected;
 
+    /// <summary>子がペアリングを解除した（子の公開鍵の指紋）。親もこの子を忘れる。受け取る側のスレッドから通知。</summary>
+    public event Action<string>? ChildUnpaired;
+
+    /// <summary>
+    /// 今の子に「ペアリングを解除した」を伝える（UI スレッドから。このあとすぐ止めるので、待ち行列を通さずに送る）。
+    /// </summary>
+    public void SendUnpair() => CurrentSession()?.SendNow(RemoteProtocol.Unpair);
+
     /// <summary>子の絵が届いた（セッション番号・BGRA の画素・幅・高さ）。受け取る側のスレッドから通知。</summary>
     public event Action<long, byte[], int, int>? FrameReceived;
 
@@ -192,7 +200,12 @@ internal sealed class RemoteParent : IDisposable
                 decision = _approve(thumbprint, childName, channel.PairCode, approval.Token);
             }
             deadline.Change(ApprovalWait + PeerAnswerWait + TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
-            if (!RemoteProtocol.Agree(channel, client, decision, ApprovalWait, PeerAnswerWait, () => _running, approval))
+            // 子が「つなぎますか？」で［ペアリングを解除］を選んだら、親もこの子を忘れる
+            void OnChildAnswer(byte type)
+            {
+                if (type == RemoteProtocol.Unpair) ChildUnpaired?.Invoke(thumbprint);
+            }
+            if (!RemoteProtocol.Agree(channel, client, decision, ApprovalWait, PeerAnswerWait, () => _running, approval, peerAnswer: OnChildAnswer))
             {
                 Log.Info($"リモート連携: 子「{childName}」とはつながりませんでした（どちらかが断った、または時間切れ）");
                 return;
@@ -205,7 +218,7 @@ internal sealed class RemoteParent : IDisposable
             lock (_gate)
             {
                 if (!_running) return;
-                session = new Session(Interlocked.Increment(ref s_lastSessionId), client, channel);
+                session = new Session(Interlocked.Increment(ref s_lastSessionId), client, channel) { Thumbprint = thumbprint };
                 old = _current;
                 _current = session;
                 if (ReferenceEquals(_pending, client)) _pending = null;
@@ -237,6 +250,9 @@ internal sealed class RemoteParent : IDisposable
                         var windows = RemoteProtocol.ReadWindowList(m.Payload, MaxWindows);
                         session.WindowIds = windows.Select(w => w.Id).ToHashSet();
                         if (IsCurrent(session)) WindowListReceived?.Invoke(session.Id, windows);
+                        break;
+                    case RemoteProtocol.Unpair:
+                        ChildUnpaired?.Invoke(session.Thumbprint);
                         break;
                     case RemoteProtocol.Frame:
                         var (pixels, width, height) = JpegCodec.Decode(m.Payload);
@@ -370,6 +386,16 @@ internal sealed class RemoteParent : IDisposable
         private readonly BlockingCollection<(byte Type, byte[] Payload)> _queue = new(QueueLimit);
 
         public long Id { get; } = id;
+
+        /// <summary>子の公開鍵の指紋。</summary>
+        public string Thumbprint { get; init; } = "";
+
+        /// <summary>待ち行列を通さずにすぐ送る（止める直前の知らせ用）。送れなくてもよい。</summary>
+        public void SendNow(byte type)
+        {
+            try { channel.Write(type, []); }
+            catch { }
+        }
 
         /// <summary>最初の絵が届いて「つながった」を出したか。</summary>
         public volatile bool Announced;

@@ -84,6 +84,18 @@ internal sealed class AppSettings
     /// <summary>子: ペアリングした親の証明書の指紋（この親にだけつなぐ。null ならまだペアリングしていない）。</summary>
     public string? RemotePairedParent { get; set; }
 
+    /// <summary>
+    /// 子: 「つなぎますか？」を聞かずにつなぐ親の指紋（「この親には確認せずにつなぐ」）。ペアリングした親と同じときだけ効く
+    /// （ペアリングし直したら、また聞く）。
+    /// </summary>
+    public string? RemoteNoConfirmParent { get; set; }
+
+    /// <summary>
+    /// 子: 親にこの PC のウィンドウの一覧（とサムネイル）を送るか。オフなら親からは何を開いているか分からず、
+    /// 親から共有する・外すも受け付けない（ほかの人の PC を見てあげるとき用）。
+    /// </summary>
+    public bool RemoteSendWindowList { get; set; } = true;
+
     /// <summary>親: ペアリングで許可した子（証明書の指紋 → 子の名前）。ここにある子は確かめずにつなぐ。</summary>
     public Dictionary<string, string> RemotePairedChildren { get; set; } = [];
 

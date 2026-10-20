@@ -23,6 +23,46 @@
     <value>親「{0}」とペアリングしようとしています。
 親の画面にも同じ番号が出ているのを確かめてから、許可してください。</value>
   </data>
+  <data name="Connect_Title" xml:space="preserve">
+    <value>リモート連携</value>
+  </data>
+  <data name="Connect_Message" xml:space="preserve">
+    <value>親「{0}」につなぎますか？
+つなぐと、親からこの PC のウィンドウを選んで共有できるようになります。</value>
+  </data>
+  <data name="Connect_MessageNoList" xml:space="preserve">
+    <value>親「{0}」につなぎますか？</value>
+  </data>
+  <data name="Remote_SendList" xml:space="preserve">
+    <value>親にこの PC のウィンドウの一覧を送る（親から選んで共有できる）</value>
+  </data>
+  <data name="Badge_ChildSending" xml:space="preserve">
+    <value>● 親へ送信中</value>
+  </data>
+  <data name="Badge_ChildConnecting" xml:space="preserve">
+    <value>親へ接続中…</value>
+  </data>
+  <data name="Badge_ParentConnected" xml:space="preserve">
+    <value>● 子と接続中</value>
+  </data>
+  <data name="Badge_ParentWaiting" xml:space="preserve">
+    <value>子の確認待ち…</value>
+  </data>
+  <data name="Badge_ParentSharing" xml:space="preserve">
+    <value>● R を共有中</value>
+  </data>
+  <data name="Connect_SkipNext" xml:space="preserve">
+    <value>この親には確認せずにつなぐ</value>
+  </data>
+  <data name="Connect_Connect" xml:space="preserve">
+    <value>つなぐ</value>
+  </data>
+  <data name="Connect_Unpair" xml:space="preserve">
+    <value>ペアリングを解除</value>
+  </data>
+  <data name="Connect_Cancel" xml:space="preserve">
+    <value>キャンセル</value>
+  </data>
   <data name="Pair_Allow" xml:space="preserve">
     <value>許可</value>
   </data>
@@ -52,6 +92,15 @@
   </data>
   <data name="Remote_StatusRejected" xml:space="preserve">
     <value>親（{0}）とはつながりませんでした（どちらかの画面で拒否された、または時間切れ）。</value>
+  </data>
+  <data name="Remote_StatusConfirming" xml:space="preserve">
+    <value>この PC で、親（{0}）につなぐか確かめています。</value>
+  </data>
+  <data name="Remote_StatusPaused" xml:space="preserve">
+    <value>親（{0}）にはつないでいません。つなぐときは［つなぐ］を押してください。</value>
+  </data>
+  <data name="Remote_StatusUnpaired" xml:space="preserve">
+    <value>ペアリングを解除しました。つなぐときは［つなぐ］を押してください（番号の確認からやり直します）。</value>
   </data>
   <data name="Remote_StatusCertChanged" xml:space="preserve">
     <value>親（{0}）がペアリングした相手と違います。親の設定を消したのなら、「ペアリングを解除」してからつなぎ直してください。</value>
@@ -212,6 +261,24 @@ Windows のファイアウォールの確認画面が出ることがあります
   </data>
   <data name="Undo_Button" xml:space="preserve">
     <value>元に戻す</value>
+  </data>
+  <data name="Toolbar_Pause" xml:space="preserve">
+    <value>一時停止</value>
+  </data>
+  <data name="Toolbar_Resume" xml:space="preserve">
+    <value>再開</value>
+  </data>
+  <data name="Toolbar_Paused" xml:space="preserve">
+    <value>⏸ 一時停止中</value>
+  </data>
+  <data name="Pause_Tip" xml:space="preserve">
+    <value>一時停止（選んだまま、相手には背景だけを映す）</value>
+  </data>
+  <data name="Resume_Tip" xml:space="preserve">
+    <value>再開（選んだウィンドウをまた映す）</value>
+  </data>
+  <data name="Status_Paused" xml:space="preserve">
+    <value>⏸ 一時停止中（相手には背景だけが映っています）。</value>
   </data>
   <data name="Toolbar_Front" xml:space="preserve">
     <value>前面へ</value>

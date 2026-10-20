@@ -376,6 +376,7 @@ public partial class MainWindow : Window
         _compositor.SourceClosed += hwnd => Dispatcher.BeginInvoke(() => OnSourceClosed(hwnd));
         _compositor.RemoteMode = monitor.IsRemote;
         _compositor.FrameSink = _remoteChild is { } child && _remoteChildConnected ? child.SubmitFrame : null;
+        _compositor.Paused = _paused;
         _compositor.DeviceLost += () => Dispatcher.BeginInvoke(RecoverFromDeviceLost);
         ApplyBackground(); // デバイスを作り直したときも背景を載せ直す
     }
@@ -471,6 +472,7 @@ public partial class MainWindow : Window
         // ツールバーの上で右クリックしても「クリックで選択」を抜ける
         _toolbar.RightClicked += () => _overlay.ExitSelectMode();
         _toolbar.BringToFrontRequested += BringSharedToFront;
+        _toolbar.PauseToggled += TogglePause;
         _toolbar.SettingsRequested += () =>
         {
             if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
@@ -648,6 +650,42 @@ public partial class MainWindow : Window
         SetCheckedSilently(_items, false);
         UpdateStatus();
         return snapshot;
+    }
+
+    // 一時停止中か（相手には背景だけを映す。選んだもの・クロップ・確認待ちはそのまま）。起動し直したら解ける
+    private bool _paused;
+
+    private void PauseButton_Click(object sender, RoutedEventArgs e) => TogglePause();
+
+    /// <summary>一時停止・再開を切り替える。</summary>
+    private void TogglePause()
+    {
+        _paused = !_paused;
+        if (_compositor is not null) _compositor.Paused = _paused;
+        Log.Info(_paused ? "一時停止しました" : "再開しました");
+        UpdateOverlayMuted();
+        UpdateStatus();
+    }
+
+    /// <summary>一時停止のボタン（一覧・コンパクト・ツールバー）を今の状態に合わせる。</summary>
+    private void UpdatePauseUi()
+    {
+        string icon = _paused ? "\uE768" : "\uE769"; // 再開（▶）／一時停止（⏸）
+        string tip = Loc.T(_paused ? "Resume_Tip" : "Pause_Tip");
+        foreach (var button in new[] { PauseButton, CompactPauseButton })
+        {
+            button.Content = icon;
+            button.ToolTip = tip;
+        }
+        _toolbar?.SetPaused(_paused);
+    }
+
+    /// <summary>
+    /// 自分の画面の枠をくすんだ水色にするか。一時停止中と、R（子の画面）を共有している間は、選んだウィンドウが相手に見えていないので。
+    /// </summary>
+    private void UpdateOverlayMuted()
+    {
+        if (_overlay is not null) _overlay.Muted = _paused || CurrentMonitor?.IsRemote == true;
     }
 
     private static readonly TimeSpan UndoDuration = TimeSpan.FromSeconds(6);
@@ -868,6 +906,7 @@ public partial class MainWindow : Window
             : count == 0 && remoteShared > 0 ? Loc.F("Status_SharingOnRemote", _remoteMonitor?.RemoteName ?? "", remoteShared)
             : count == 0 ? Loc.T("Status_NoneShared") : Loc.F("Status_Sharing", count);
         if (pending > 0) summary += Loc.F("Status_Pending", pending);
+        if (_paused) summary = Loc.T("Status_Paused") + " " + summary;
         // 子の画面で確認・クロップの範囲を決めるのを待っているものがあれば知らせる（親からは「頼んだのに映らない」ように見えるので）
         int remotePending = _items.Count(i => i.IsRemote && i.IsChecked && i.RemotePending);
         if (remotePending > 0) summary += "\n" + Loc.F("Status_RemotePending", _remoteMonitor?.RemoteName ?? "", remotePending);
@@ -879,10 +918,12 @@ public partial class MainWindow : Window
         UncheckAllButton.IsEnabled = CompactUncheckAllButton.IsEnabled = _selected.Count > 0 || _items.Any(i => i.IsRemote && i.IsChecked);
         // 何か選び直したら「元に戻す」は引っ込める（戻すと選び直した分とぶつかる）
         if (_selected.Count > 0 && _undoSnapshot.Count > 0) HideUndo();
+        UpdatePauseUi();
         // 子: 親の「全部外す」のあとにこの PC で何か共有したら、親の「元に戻す」で戻す分は古いので捨てる
         if (_selected.Count > 0) _parentUndoSnapshot = [];
         PublishRemoteWindowList();
         UpdateEmptyStates();
+        UpdateRemoteBadge();
     }
 
     private void MonitorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -913,7 +954,7 @@ public partial class MainWindow : Window
                 _compositor.RemoteMode = true;
             }
             _output?.SetCanvasSize(monitor.Bounds.Width, monitor.Bounds.Height);
-            if (_overlay is not null) _overlay.Muted = true;
+            UpdateOverlayMuted();
             // 膜とツールバーは、最後に選んでいたこの PC のモニターに置く。抜かれていればメインモニターへ
             // （R を選んでいる間にモニターを抜き差ししても、無くなったモニターの位置に残らないように）
             var local = MonitorEnumerator.GetMonitors();
@@ -926,7 +967,7 @@ public partial class MainWindow : Window
             return;
         }
         _lastLocalMonitor = monitor.DeviceName;
-        if (_overlay is not null) _overlay.Muted = false;
+        UpdateOverlayMuted();
         if (_compositor is not null) _compositor.RemoteMode = false;
         if (_compositor is not null) _compositor.Canvas = monitor.Bounds;
         // 出力の中身をモニターと同じ縦横比にして、共有映像に帯が出ないようにする

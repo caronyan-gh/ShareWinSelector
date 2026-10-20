@@ -42,6 +42,11 @@ internal sealed class ToolbarWindow : Window
         Margin = new Thickness(0, 0, 10, 0),
         Background = Brushes.Transparent, // 文字の隙間でもカーソルを拾う
     };
+    private readonly Button _pauseButton;
+    private bool _paused;
+    private static readonly Brush CountBrush = new SolidColorBrush(Color.FromRgb(0x7F, 0xE9, 0xFF));
+    // 一時停止中は目立つ色で（戻し忘れないように。たたんでも見える所に出る）
+    private static readonly Brush PausedBrush = new SolidColorBrush(Color.FromRgb(0xF2, 0xC1, 0x4E));
     private readonly ToggleButton _selectButton;
     private readonly ToggleButton _borderButton;
     private readonly TextBlock _titleText;
@@ -67,6 +72,8 @@ internal sealed class ToolbarWindow : Window
     public event Action<bool>? BordersToggled;
     public event Action? SettingsRequested;
     public event Action? BringToFrontRequested;
+    /// <summary>一時停止・再開のボタンが押された。</summary>
+    public event Action? PauseToggled;
     /// <summary>ツールバーの上で右クリックされた（「クリックで選択」を抜ける用）。</summary>
     public event Action? RightClicked;
 
@@ -132,10 +139,13 @@ internal sealed class ToolbarWindow : Window
         _borderButton.Unchecked += (_, _) => BordersToggled?.Invoke(false);
         var front = MakeButton("Toolbar_Front", "BringAllToFrontTip");
         front.Click += (_, _) => BringToFrontRequested?.Invoke();
+        _pauseButton = MakeButton("Toolbar_Pause", "Pause_Tip");
+        _pauseButton.Click += (_, _) => PauseToggled?.Invoke();
         var settings = MakeButton("Toolbar_Settings", "Toolbar_SettingsTip");
         settings.Click += (_, _) => SettingsRequested?.Invoke();
         _buttons.Children.Add(_selectButton);
         _buttons.Children.Add(front);
+        _buttons.Children.Add(_pauseButton);
         _buttons.Children.Add(_borderButton);
         _buttons.Children.Add(settings);
         _buttonsClip.Child = _buttons;
@@ -364,8 +374,19 @@ internal sealed class ToolbarWindow : Window
     {
         _count = count;
         _remote = remote;
-        _countText.Text = remote ? Loc.T("Toolbar_SharingRemote") : count == 0 ? Loc.T("Toolbar_NoneShared") : Loc.F("Toolbar_Sharing", count);
+        _countText.Text = _paused ? Loc.T("Toolbar_Paused")
+            : remote ? Loc.T("Toolbar_SharingRemote") : count == 0 ? Loc.T("Toolbar_NoneShared") : Loc.F("Toolbar_Sharing", count);
+        _countText.Foreground = _paused ? PausedBrush : CountBrush;
         if (_hwnd != IntPtr.Zero) Relayout();
+    }
+
+    /// <summary>一時停止中かを出す（数の所を「一時停止中」に、ボタンを「再開」に）。</summary>
+    public void SetPaused(bool paused)
+    {
+        _paused = paused;
+        Bind(_pauseButton, ContentControl.ContentProperty, paused ? "Toolbar_Resume" : "Toolbar_Pause");
+        Bind(_pauseButton, ToolTipProperty, paused ? "Resume_Tip" : "Pause_Tip");
+        SetCount(_count, _remote);
     }
 
     public void SetSelectMode(bool on) => _selectButton.IsChecked = on;

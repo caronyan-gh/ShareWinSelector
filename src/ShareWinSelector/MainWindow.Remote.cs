@@ -35,10 +35,15 @@ public partial class MainWindow
     {
         _remoteStatus = text;
         RemoteStatusChanged?.Invoke();
+        UpdateRemoteBadge();
     }
 
     /// <summary>設定どおりにリモート連携を始め直す（今の接続や待ち受けは止めてから）。</summary>
-    internal void ApplyRemoteSettings()
+    /// <param name="userConnect">
+    /// 子: 特殊設定の［つなぐ］（または見つけた親を選んだ）から。自分でつなぐと決めたので、今回は「つなぎますか？」を聞かない。
+    /// </param>
+    /// <param name="startStopped">子: ペアリングを解除した直後。つながずに止まっておく（つなぎ直すと、すぐ番号の窓が出てしまう）。</param>
+    internal void ApplyRemoteSettings(bool userConnect = false, bool startStopped = false)
     {
         StopRemote();
         var s = App.Settings;
@@ -57,18 +62,23 @@ public partial class MainWindow
             SetRemoteStatus(Loc.F("Remote_StatusError", ex.Message));
             return;
         }
-        if (s.RemoteRole == "Child") StartChild();
+        if (s.RemoteRole == "Child") StartChild(userConnect, startStopped);
         else StartParent();
     }
 
     /// <summary>ペアリングで覚えた親・子を忘れる（次につなぐときに、もう一度番号を確かめる）。</summary>
     internal void UnpairRemote()
     {
+        // つながっていれば、相手にも「解除した」を伝える（相手も忘れて、次は番号の確認から）
+        _remoteChild?.SendUnpair();
+        _remoteParent?.SendUnpair();
         App.Settings.RemotePairedParent = null;
+        App.Settings.RemoteNoConfirmParent = null;
         App.Settings.RemotePairedChildren.Clear();
         App.Settings.Save();
         Log.Info("リモート連携: ペアリングを解除しました");
-        ApplyRemoteSettings();
+        // 子は、解除した直後に勝手につなぎ直さない（［つなぐ］を押したら、番号の確認からやり直す）
+        ApplyRemoteSettings(startStopped: App.Settings.RemoteRole == "Child");
     }
 
     /// <summary>ペアリングの今の状態の一文（特殊設定のダイアログに出す）。</summary>
@@ -76,12 +86,108 @@ public partial class MainWindow
         ? (App.Settings.RemotePairedParent is null ? Loc.T("Remote_PairedParentNone") : Loc.T("Remote_PairedParentYes"))
         : Loc.F("Remote_PairedChildren", App.Settings.RemotePairedChildren.Count);
 
+    /// <summary>
+    /// リモート連携の窓（番号の窓・「つなぎますか？」）を出す。管理画面が出ていれば、その持ち物にする
+    /// （持ち物の窓は Windows が必ず持ち主より手前に出すので、起動の直後に管理画面があとから手前に来ても隠れない）。
+    /// </summary>
+    private void ShowRemoteDialog(Window window)
+    {
+        if (IsVisible && WindowState != WindowState.Minimized) window.Owner = this;
+        window.Show();
+        window.Activate();
+    }
+
     /// <summary>番号の窓を重ねて出す先: 特殊設定が開いていればそれ、無ければメイン画面（最小化中は画面の中央）。</summary>
     private Window? PairWindowAnchor()
     {
         if (_advancedWindow is { IsVisible: true } advanced && advanced.WindowState != WindowState.Minimized) return advanced;
         return IsVisible && WindowState != WindowState.Minimized ? this : null;
     }
+
+    /// <summary>
+    /// 子: ペアリング済みの親につなぐ前に「つなぎますか？」と聞く（送る側のスレッドから呼ばれる）。
+    /// 「この親には確認せずにつなぐ」を付けて［つなぐ］なら、次からは聞かない。親が切れたり時間が過ぎたりしたら cancel で閉じる（キャンセル扱い）。
+    /// </summary>
+    private Task<RemoteConnectChoice> AskConnectParent(string parentName, CancellationToken cancel)
+    {
+        return Dispatcher.InvokeAsync(() =>
+        {
+            if (cancel.IsCancellationRequested) return Task.FromResult(RemoteConnectChoice.Cancel);
+            var child = _remoteChild;
+            var window = new RemoteConnectWindow(parentName, App.Settings.RemoteSendWindowList, cancel, PairWindowAnchor());
+            ShowRemoteDialog(window);
+            return window.Result.ContinueWith(t =>
+            {
+                var (choice, skip) = t.Result;
+                if (skip) Dispatcher.BeginInvoke(() =>
+                {
+                    if (!ReferenceEquals(_remoteChild, child) || App.Settings.RemotePairedParent is not { } paired) return;
+                    App.Settings.RemoteNoConfirmParent = paired;
+                    App.Settings.Save();
+                });
+                return choice;
+            }, TaskScheduler.Default);
+        }).Task.Unwrap();
+    }
+
+    // 子の今の状態（札の色を決める）と、親で開いている番号の窓の数
+    private RemoteChildState? _remoteChildState;
+    private int _parentPairWindows;
+
+    /// <summary>特殊設定の「親にこの PC のウィンドウの一覧を送る」を切り替えた: つないでいる最中でもすぐ効かせる。</summary>
+    internal void ApplyRemoteSendWindowList()
+    {
+        if (_remoteChild is not { } child) return;
+        child.AcceptParentRequests = App.Settings.RemoteSendWindowList;
+        PublishRemoteWindowList();
+    }
+
+    /// <summary>
+    /// 「相手からの見え方」の横（コンパクトではプレビューの上）の札。赤 = 画面が相手に流れている、黄 = 待ち、水色 = つながっているだけ。
+    /// 子: 赤「親へ送信中」／黄「親へ接続中…」。親: 赤「R を共有中」／水色「子と接続中」／黄「子の確認待ち…」。どれでもなければ出さない。
+    /// </summary>
+    private void UpdateRemoteBadge()
+    {
+        string? text = null, tip = null;
+        string bg = "", fg = "";
+        if (_remoteChild is { } child)
+        {
+            tip = child.Host;
+            switch (_remoteChildState)
+            {
+                case RemoteChildState.Connected: (text, bg, fg) = (Loc.T("Badge_ChildSending"), BadgeRed, "#FFFFFF"); break;
+                case RemoteChildState.Connecting or RemoteChildState.Retrying or RemoteChildState.WaitingApproval or RemoteChildState.Confirming:
+                    (text, bg, fg) = (Loc.T("Badge_ChildConnecting"), BadgeYellow, "#1A1A1A"); break;
+            }
+        }
+        else if (_remoteParent is not null)
+        {
+            tip = _remoteMonitor?.RemoteName;
+            if (_remoteMonitor is not null)
+                (text, bg, fg) = CurrentMonitor?.IsRemote == true
+                    ? (Loc.T("Badge_ParentSharing"), BadgeRed, "#FFFFFF")
+                    : (Loc.T("Badge_ParentConnected"), BadgeCyan, "#0B1020");
+            else if (_parentPairWindows > 0)
+                (text, bg, fg) = (Loc.T("Badge_ParentWaiting"), BadgeYellow, "#1A1A1A");
+        }
+        foreach (var (badge, label) in new[] { (RemoteBadge, RemoteBadgeText), (CompactRemoteBadge, CompactRemoteBadgeText) })
+        {
+            if (text is null)
+            {
+                badge.Visibility = Visibility.Collapsed;
+                continue;
+            }
+            badge.Background = BrushOf(bg);
+            label.Foreground = BrushOf(fg);
+            label.Text = text;
+            badge.ToolTip = tip;
+            badge.Visibility = Visibility.Visible;
+        }
+    }
+
+    private const string BadgeRed = "#E5484D", BadgeYellow = "#F2C14E", BadgeCyan = "#00D8FF";
+    private static System.Windows.Media.Brush BrushOf(string hex) =>
+        new System.Windows.Media.SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hex));
 
     /// <summary>親: この子（公開鍵の指紋）をペアリングで覚えているか（受け取る側のスレッドから呼ばれる）。</summary>
     private bool IsKnownChild(string thumbprint)
@@ -103,13 +209,16 @@ public partial class MainWindow
             var parent = _remoteParent;
             SetRemoteStatus(Loc.F("Remote_StatusParentWaiting", name, code));
             var window = new RemotePairWindow(Loc.F("Pair_Message", name), code, cancel, PairWindowAnchor());
+            _parentPairWindows++;
+            UpdateRemoteBadge();
             window.Closed += (_, _) =>
             {
+                _parentPairWindows--;
+                UpdateRemoteBadge();
                 if (ReferenceEquals(_remoteParent, parent) && _remoteMonitor is null)
                     SetRemoteStatus(Loc.F("Remote_StatusListening", App.Settings.RemotePort));
             };
-            window.Show();
-            window.Activate();
+            ShowRemoteDialog(window);
             return window.Result;
         }).Task.Unwrap();
     }
@@ -144,8 +253,7 @@ public partial class MainWindow
         {
             if (cancel.IsCancellationRequested) return Task.FromResult(false);
             var window = new RemotePairWindow(Loc.F("Pair_MessageChild", parentName), code, cancel, PairWindowAnchor());
-            window.Show();
-            window.Activate();
+            ShowRemoteDialog(window);
             return window.Result;
         }).Task.Unwrap();
     }
@@ -160,6 +268,14 @@ public partial class MainWindow
             parent.SessionStarted += (session, thumbprint, name) => Dispatcher.BeginInvoke(() => OnSessionStarted(parent, session, thumbprint, name));
             parent.ChildConnected += (session, name, w, h) => Dispatcher.BeginInvoke(() => OnChildConnected(parent, session, name, w, h));
             parent.ChildDisconnected += session => Dispatcher.BeginInvoke(() => OnChildDisconnected(parent, session));
+            // 子でペアリングが解除された: 親もこの子を忘れる（次につなぐときは番号の確認から）
+            parent.ChildUnpaired += thumbprint => Dispatcher.BeginInvoke(() =>
+            {
+                if (!ReferenceEquals(_remoteParent, parent) || !App.Settings.RemotePairedChildren.Remove(thumbprint, out var name)) return;
+                App.Settings.Save();
+                Log.Info($"リモート連携: 子「{name}」でペアリングが解除されました");
+                RemoteStatusChanged?.Invoke();
+            });
             parent.FrameReceived += (session, pixels, w, h) => OnRemoteFrame(parent, session, pixels, w, h);
             parent.WindowListReceived += (session, windows) => QueueRemoteWindowList(session, windows);
             parent.ThumbnailReceived += (session, id, image) => QueueRemoteThumbnail(session, id, image);
@@ -188,7 +304,7 @@ public partial class MainWindow
         if (_output is not null) _output.Placement = on ? Output.OutputPlacement.OffScreen : SelectedPlacement;
     }
 
-    private void StartChild()
+    private void StartChild(bool userConnect, bool startStopped = false)
     {
         string? address = App.Settings.RemoteParentAddress?.Trim();
         if (string.IsNullOrEmpty(address))
@@ -196,12 +312,18 @@ public partial class MainWindow
             SetRemoteStatus(Loc.T("Remote_StatusNoParent"));
             return;
         }
-        var child = new RemoteChild(address, App.Settings.RemotePort, LocalName, _remoteIdentity!, App.Settings.RemotePairedParent, ConfirmParent);
+        // ペアリング済みの親で「確認せずにつなぐ」にしていなければ、つなぐ前に聞く（1 回の起動の中では最初の 1 回だけ）
+        // 特殊設定の［つなぐ］から（userConnect）なら、押したことを「つなぐ」の答えとみなして聞かない
+        bool ask = !userConnect && (App.Settings.RemotePairedParent is not { } paired || App.Settings.RemoteNoConfirmParent != paired);
+        var child = new RemoteChild(address, App.Settings.RemotePort, LocalName, _remoteIdentity!, App.Settings.RemotePairedParent, ConfirmParent,
+            ask ? AskConnectParent : null, startStopped);
         child.StateChanged += (state, detail) => Dispatcher.BeginInvoke(() =>
         {
             if (!ReferenceEquals(_remoteChild, child)) return;
             // 合成した絵を親へ渡すのは、つながっている間だけ（渡す先を付けると、変わっていなくても 1 枚すぐ渡る）
             _remoteChildConnected = state == RemoteChildState.Connected;
+            _remoteChildState = state;
+            UpdateRemoteBadge();
             // 切れたら、親の「全部外す」で覚えた戻す分は捨てる（つなぎ直した親から「元に戻す」が来ても、古いものは戻さない）
             if (!_remoteChildConnected) _parentUndoSnapshot = [];
             if (_compositor is not null) _compositor.FrameSink = _remoteChildConnected ? child.SubmitFrame : null;
@@ -212,6 +334,9 @@ public partial class MainWindow
                 RemoteChildState.WaitingApproval => Loc.F("Remote_StatusWaitApproval", detail),
                 RemoteChildState.Rejected => Loc.F("Remote_StatusRejected", detail),
                 RemoteChildState.KeyChanged => Loc.F("Remote_StatusCertChanged", detail),
+                RemoteChildState.Confirming => Loc.F("Remote_StatusConfirming", detail),
+                RemoteChildState.Paused => Loc.F("Remote_StatusPaused", detail),
+                RemoteChildState.Unpaired => Loc.T("Remote_StatusUnpaired"),
                 _ => Loc.F("Remote_StatusConnecting", detail),
             });
         });
@@ -252,10 +377,22 @@ public partial class MainWindow
             App.Settings.RemotePairedParent = thumbprint;
             App.Settings.Save();
         });
+        // ペアリングを解除した（この PC の「つなぎますか？」で、または親で解除された）: 親を忘れる
+        child.ParentUnpaired += () => Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(_remoteChild, child)) return;
+            App.Settings.RemotePairedParent = null;
+            App.Settings.RemoteNoConfirmParent = null;
+            App.Settings.Save();
+            RemoteStatusChanged?.Invoke();
+        });
+        child.AcceptParentRequests = App.Settings.RemoteSendWindowList;
         _remoteChild = child;
         _remoteChildConnected = false;
+        _remoteChildState = null;
         SetChildOutputOffScreen(true);
         PublishRemoteWindowList();
+        child.Start();
         Log.Info($"リモート連携: 子として {address}:{App.Settings.RemotePort} へ");
     }
 
@@ -265,6 +402,7 @@ public partial class MainWindow
     private void StopRemote()
     {
         _remoteChildConnected = false;
+        _remoteChildState = null;
         if (_compositor is not null) _compositor.FrameSink = null;
         if (_remoteChild is not null)
         {
@@ -355,6 +493,12 @@ public partial class MainWindow
     private void PublishRemoteWindowList()
     {
         if (_remoteChild is not { } child) return;
+        // 一覧を送らない設定なら空の一覧（親の画面から子の行が消え、サムネイルも撮らない）
+        if (!App.Settings.RemoteSendWindowList)
+        {
+            child.SubmitWindowList([]);
+            return;
+        }
         child.SubmitWindowList(_items.Where(i => !i.IsRemote)
             .Select(i => new RemoteWindow((long)i.Handle, i.Title, i.ProcessName, i.IsChecked, i.IsChecked && IsWaitingForReview(i.Handle))).ToList());
     }

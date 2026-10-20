@@ -25,6 +25,20 @@ internal enum RemoteChildState
     Rejected,
     /// <summary>ペアリングで覚えた親と鍵が違う（親が設定を消した、または別の PC）。</summary>
     KeyChanged,
+    /// <summary>この PC の画面で、親につなぐか確かめている。</summary>
+    Confirming,
+    /// <summary>この PC の画面でつなぐのをやめた（キャンセル・ペアリングを解除）。特殊設定の［つなぐ］か次の起動まで、自分からはつながない。</summary>
+    Paused,
+    /// <summary>ペアリングを解除した（この PC の特殊設定で、または親から知らされた）。特殊設定の［つなぐ］か次の起動まで、自分からはつながない。</summary>
+    Unpaired,
+}
+
+/// <summary>「親につなぎますか？」の答え。</summary>
+internal enum RemoteConnectChoice
+{
+    Connect,
+    Unpair,
+    Cancel,
 }
 
 /// <summary>
@@ -57,6 +71,12 @@ internal sealed class RemoteChild : IDisposable
     private readonly string _name;
     private readonly RemoteIdentity _identity;
     private readonly Func<string, string, CancellationToken, Task<bool>> _confirm;
+    private readonly Func<string, CancellationToken, Task<RemoteConnectChoice>>? _askConnect;
+    private readonly bool _startStopped;
+    // 親でペアリングが解除された（このあと切れても、自分からはつなぎ直さない。つなぎ直すと両方の画面に番号の窓が出てしまう）
+    private volatile bool _unpairedByParent;
+    // この起動の中で一度つないだか（つなぎ直しでは「つなぎますか？」を聞かない）
+    private bool _connectedOnce;
     private string? _pinnedParent;
     private readonly Thread _thread;
     private readonly object _gate = new();
@@ -76,6 +96,21 @@ internal sealed class RemoteChild : IDisposable
     /// 親の一覧でチェックが切り替えられた（子の PC でのウィンドウの番号・共有するか・親の「上をクロップ」）。受け取る側のスレッドから通知。
     /// </summary>
     public event Action<long, bool, bool?>? ShareRequested;
+
+    /// <summary>ペアリングを解除した（この PC の「つなぎますか？」で、または親から知らせが来た）。親を忘れる。通知はどちらかのスレッドから。</summary>
+    public event Action? ParentUnpaired;
+
+    /// <summary>今の親に「ペアリングを解除した」を伝える（UI スレッドから。このあとすぐ止めるので、その場で送る）。</summary>
+    public void SendUnpair()
+    {
+        SecureChannel? channel;
+        lock (_gate) channel = _channel;
+        try { channel?.Write(RemoteProtocol.Unpair, []); }
+        catch { }
+    }
+
+    /// <summary>親から「共有する／外す」「全部外す」「元に戻す」を受け付けるか（一覧を送らない設定ではオフ）。</summary>
+    public volatile bool AcceptParentRequests = true;
 
     /// <summary>親で「全部外す」が押された。受け取る側のスレッドから通知。</summary>
     public event Action? UncheckAllRequested;
@@ -185,22 +220,39 @@ internal sealed class RemoteChild : IDisposable
     /// 初めての親につないでよいか（親の名前・ペアリングの番号・取り消し）。この PC の画面で確かめてから答える。
     /// 親が切れたり時間が過ぎたりしたら取り消される（窓を閉じる）。送る側のスレッドから呼ばれる。
     /// </param>
+    /// <param name="startStopped">
+    /// 初めからつながない（ペアリングを解除した直後）。特殊設定の［つなぐ］で作り直されるまで、Unpaired のまま待つ。
+    /// </param>
+    /// <param name="askConnect">
+    /// ペアリング済みの親につなぐ前に、この PC の画面で「つなぎますか？」と聞く（親の名前・取り消し）。null なら聞かない
+    /// （「この親には確認せずにつなぐ」）。1 回の起動の中では、一度つないだらそのあとのつなぎ直しでは聞かない。
+    /// </param>
     public RemoteChild(string host, int port, string name, RemoteIdentity identity, string? pinnedParent,
-        Func<string, string, CancellationToken, Task<bool>> confirm)
+        Func<string, string, CancellationToken, Task<bool>> confirm,
+        Func<string, CancellationToken, Task<RemoteConnectChoice>>? askConnect = null, bool startStopped = false)
     {
+        _startStopped = startStopped;
         _host = host;
         _port = port;
         _name = name;
         _identity = identity;
         _pinnedParent = pinnedParent;
         _confirm = confirm;
-        // JPEG への変換に WPF の画像機能を使うので STA で動かす
+        _askConnect = askConnect;
+        // JPEG への変換に WPF の画像機能を使うので STA で動かす（動かし始めるのは Start で）
         _thread = new Thread(Run) { IsBackground = true, Name = "RemoteChild" };
         _thread.SetApartmentState(ApartmentState.STA);
+        _thumbnailThread = new Thread(ThumbnailLoop) { IsBackground = true, Name = "RemoteChild.Thumbnails" };
+        _thumbnailThread.SetApartmentState(ApartmentState.STA);
+    }
+
+    private readonly Thread _thumbnailThread;
+
+    /// <summary>動かし始める。知らせ（StateChanged など）を受け取る準備が済んでから呼ぶ（先に動かすと、最初の知らせを取りこぼす）。</summary>
+    public void Start()
+    {
         _thread.Start();
-        var thumbnails = new Thread(ThumbnailLoop) { IsBackground = true, Name = "RemoteChild.Thumbnails" };
-        thumbnails.SetApartmentState(ApartmentState.STA);
-        thumbnails.Start();
+        _thumbnailThread.Start();
     }
 
     public string Host => _host;
@@ -215,6 +267,12 @@ internal sealed class RemoteChild : IDisposable
     private void Run()
     {
         bool loggedFailure = false;
+        if (_startStopped)
+        {
+            StateChanged?.Invoke(RemoteChildState.Unpaired, _host);
+            _stop.Wait();
+            return;
+        }
         while (!_stop.IsSet)
         {
             var client = new TcpClient();
@@ -260,22 +318,47 @@ internal sealed class RemoteChild : IDisposable
                     throw new InvalidDataException("親から返事がありません");
                 bool parentKnowsMe = status.Payload is [1, ..];
 
-                // お互いに覚えていればすぐ許可。どちらかが覚えていなければ、両方の画面に同じ番号を出して、この PC でも許可してもらう
+                // お互いに覚えていれば、番号の確認は要らない（「つなぎますか？」は、聞く設定で、この起動でまだつないでいなければ聞く）。
+                // どちらかが覚えていなければ、両方の画面に同じ番号を出して、この PC でも許可してもらう
                 Task<bool> decision;
+                Task<RemoteConnectChoice>? ask = null;
+                string peerName = stream.PeerName.Length > 0 ? stream.PeerName : _host;
                 if (_pinnedParent is not null && parentKnowsMe)
                 {
-                    decision = Task.FromResult(true);
+                    if (_askConnect is not null && !_connectedOnce)
+                    {
+                        StateChanged?.Invoke(RemoteChildState.Confirming, _host);
+                        ask = _askConnect(peerName, approval.Token);
+                        decision = ask.ContinueWith(t => t.IsCompletedSuccessfully && t.Result == RemoteConnectChoice.Connect, TaskScheduler.Default);
+                    }
+                    else decision = Task.FromResult(true);
                 }
                 else
                 {
                     StateChanged?.Invoke(RemoteChildState.WaitingApproval, stream.PairCode);
-                    string parentName = stream.PeerName.Length > 0 ? stream.PeerName : _host;
-                    decision = _confirm(parentName, stream.PairCode, approval.Token);
+                    decision = _confirm(peerName, stream.PairCode, approval.Token);
                 }
                 deadline.Change(ApprovalWait + PeerAnswerWait + TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
-                if (!RemoteProtocol.Agree(stream, client, decision, ApprovalWait, PeerAnswerWait, () => !_stop.IsSet, approval))
+                bool unpairChosen() => ask is { IsCompletedSuccessfully: true } && ask.Result == RemoteConnectChoice.Unpair;
+                if (!RemoteProtocol.Agree(stream, client, decision, ApprovalWait, PeerAnswerWait, () => !_stop.IsSet, approval,
+                        refusalType: () => unpairChosen() ? RemoteProtocol.Unpair : RemoteProtocol.Rejected))
                 {
                     if (_stop.IsSet) break;
+                    // この PC で［つなぐ］以外を選んだ（キャンセル・ペアリングを解除・時間切れ）: 自分からはつなぎ直さない
+                    if (ask is not null && !(ask.IsCompletedSuccessfully && ask.Result == RemoteConnectChoice.Connect))
+                    {
+                        if (unpairChosen())
+                        {
+                            _pinnedParent = null;
+                            ParentUnpaired?.Invoke();
+                            Log.Info($"リモート連携: 親 {_host} とのペアリングを解除しました（親にも知らせた）");
+                        }
+                        else Log.Info($"リモート連携: 親 {_host} につなぐのをやめました");
+                        StateChanged?.Invoke(unpairChosen() ? RemoteChildState.Unpaired : RemoteChildState.Paused, _host);
+                        client.Close();
+                        _stop.Wait();
+                        break;
+                    }
                     Log.Info($"リモート連携: 親 {_host} とはつながりませんでした（どちらかが断った、または時間切れ）");
                     StateChanged?.Invoke(RemoteChildState.Rejected, _host);
                     client.Close();
@@ -294,6 +377,7 @@ internal sealed class RemoteChild : IDisposable
                 // 切れる前・切れている間に合成の側から届いて、まだ送っていない絵は捨てる（外したウィンドウが映っているかもしれない）。
                 // つながったと知らせると、合成の側が今の絵を 1 枚すぐ渡してくる
                 lock (_gate) _latest = null;
+                _connectedOnce = true;
                 StateChanged?.Invoke(RemoteChildState.Connected, _host);
                 Log.Info($"リモート連携: 親 {_host}:{_port} につながりました");
                 loggedFailure = false;
@@ -337,6 +421,13 @@ internal sealed class RemoteChild : IDisposable
                     }
                 }
             }
+            catch (Exception) when (!_stop.IsSet && _unpairedByParent)
+            {
+                // 親でペアリングが解除されて切れた: つなぎ直さずに止まる
+                StateChanged?.Invoke(RemoteChildState.Unpaired, _host);
+                _stop.Wait();
+                break;
+            }
             catch (Exception ex) when (!_stop.IsSet)
             {
                 // つながらない間は同じエラーでログを埋めない
@@ -374,14 +465,21 @@ internal sealed class RemoteChild : IDisposable
             {
                 switch (message.Type)
                 {
-                    case RemoteProtocol.SetShared:
+                    case RemoteProtocol.SetShared when AcceptParentRequests:
                         if (JsonSerializer.Deserialize<RemoteShareRequest>(message.Payload) is { } request)
                             ShareRequested?.Invoke(request.Id, request.Shared, request.CropDefault);
                         break;
-                    case RemoteProtocol.UncheckAll:
+                    case RemoteProtocol.UncheckAll when AcceptParentRequests:
                         UncheckAllRequested?.Invoke();
                         break;
-                    case RemoteProtocol.RestoreAll:
+                    case RemoteProtocol.Unpair:
+                        // 親でペアリングが解除された: この PC も親を忘れる（次につなぐときは番号の確認から）。切れたあとはつなぎ直さない
+                        _unpairedByParent = true;
+                        _pinnedParent = null;
+                        ParentUnpaired?.Invoke();
+                        Log.Info($"リモート連携: 親 {_host} でペアリングが解除されました");
+                        break;
+                    case RemoteProtocol.RestoreAll when AcceptParentRequests:
                         RestoreAllRequested?.Invoke();
                         break;
                     case RemoteProtocol.ThumbnailsWanted:
@@ -411,7 +509,7 @@ internal sealed class RemoteChild : IDisposable
         _frameReady.Set();
         _thumbnailWake.Set();
         lock (_gate) _client?.Close();
-        _thread.Join(TimeSpan.FromSeconds(1));
+        if ((_thread.ThreadState & ThreadState.Unstarted) == 0) _thread.Join(TimeSpan.FromSeconds(1));
     }
 
     // 親を探したときに並べる数の上限（偽の返事を大量に送られても一覧が膨らまないように）

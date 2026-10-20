@@ -379,6 +379,15 @@ internal sealed class Compositor : IDisposable
     }
     private volatile Action<byte[], int, int>? _frameSink;
 
+    private volatile bool _paused;
+
+    /// <summary>一時停止中か（true の間は背景だけを描く。選んだウィンドウやキャプチャはそのまま続ける）。</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set { _paused = value; _dirty = true; }
+    }
+
     /// <summary>親として子の画面を共有しているか（true の間は子の絵だけを描く）。</summary>
     public bool RemoteMode
     {
@@ -773,7 +782,7 @@ internal sealed class Compositor : IDisposable
         var canvasRect = new Rect(0, 0, cw, ch);
         _context.PushAxisAlignedClip(canvasRect, AntialiasMode.Aliased);
         _context.FillRectangle(canvasRect, _canvasBrush);
-        if (_remoteMode)
+        if (_remoteMode && !_paused)
         {
             // 子の画面を共有中: 子から届いた絵をキャンバスいっぱいに描く（届くまでは塗りつぶしのまま）
             if (_remoteBitmap is not null)
@@ -792,7 +801,8 @@ internal sealed class Compositor : IDisposable
                 InterpolationMode.HighQualityCubic, new Rect(0, 0, bs.Width, bs.Height), null);
         }
 
-        foreach (var (hwnd, bounds, cropPx) in _remoteMode ? [] : order)
+        // 一時停止中は、ウィンドウも子の絵も描かない（背景だけ）
+        foreach (var (hwnd, bounds, cropPx) in _remoteMode || _paused ? [] : order)
         {
             if (!_sources.TryGetValue(hwnd, out var s) || s.Dead || s.Hidden || s.Bitmap is null || s.Width <= 0 || s.Height <= 0) continue;
             // キャプチャ内容は物理ピクセル等倍で、実ウィンドウの左上に置く。上をクロップしていればその分を描かない

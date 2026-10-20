@@ -49,6 +49,12 @@ internal static class RemoteProtocol
     /// <summary>親 → 子: 全部外したのを元に戻す。</summary>
     public const byte RestoreAll = 11;
 
+    /// <summary>
+    /// 親 ⇄ 子: ペアリングを解除した（受け取った側も相手を忘れる。次につなぐときは番号の確認から）。
+    /// 子が「つなぎますか？」で［ペアリングを解除］を選んだときは、許可の答えの代わりにこれを送る。
+    /// </summary>
+    public const byte Unpair = 12;
+
     /// <summary>1 通の上限（壊れたデータで巨大な配列を作らないように）。</summary>
     public const int MaxMessage = 32 * 1024 * 1024;
 
@@ -110,8 +116,10 @@ internal static class RemoteProtocol
     /// ペアリングの答えをそろえる: 自分の答え（local。画面で許可・拒否、許可済みの相手ならすぐ true）を相手に送り、相手の答えを受け取る。
     /// 両方とも許可なら true。自分の答えを待つ間に、相手が切った・断ってきたら、待つのをやめて false（cancelLocal で窓を閉じてもらう）。
     /// </summary>
+    /// <param name="refusalType">断るときに送る種類（既定は Rejected。子がペアリングを解除したときは Unpair）。</param>
+    /// <param name="peerAnswer">相手の答えの種類を受け取る（相手がペアリングを解除したかを知るため）。</param>
     public static bool Agree(SecureChannel channel, System.Net.Sockets.TcpClient client, Task<bool> local, TimeSpan localWait, TimeSpan peerWait,
-        Func<bool> running, CancellationTokenSource cancelLocal)
+        Func<bool> running, CancellationTokenSource cancelLocal, Func<byte>? refusalType = null, Action<byte>? peerAnswer = null)
     {
         bool? peer = null;
         bool mine;
@@ -131,7 +139,9 @@ internal static class RemoteProtocol
             if (peer is null && client.Available > 0)
             {
                 // 相手が先に答えた。断られたなら、こちらの窓はもう要らない
-                peer = channel.Read(PreAuthMaxMessage) is { Type: Accepted };
+                var early = channel.Read(PreAuthMaxMessage);
+                if (early is { } e) peerAnswer?.Invoke(e.Type);
+                peer = early is { Type: Accepted };
                 if (peer == false)
                 {
                     mine = false;
@@ -148,14 +158,16 @@ internal static class RemoteProtocol
         cancelLocal.Cancel();
         if (!mine)
         {
-            Refuse(channel, client);
+            Refuse(channel, client, refusalType?.Invoke() ?? Rejected);
             return false;
         }
         channel.Write(Accepted, []);
         if (peer is null)
         {
             client.ReceiveTimeout = (int)peerWait.TotalMilliseconds;
-            peer = channel.Read(PreAuthMaxMessage) is { Type: Accepted };
+            var answer = channel.Read(PreAuthMaxMessage);
+            if (answer is { } a) peerAnswer?.Invoke(a.Type);
+            peer = answer is { Type: Accepted };
         }
         return peer == true;
     }
@@ -164,11 +176,11 @@ internal static class RemoteProtocol
     /// 断ったことを伝えて、相手が受け取るのを少し待つ。相手が送ってきたものを読まずに閉じると接続がリセットされ、
     /// 相手は「断られた」を読めずに、ただの通信の失敗としてすぐつなぎ直してしまう（窓が何度も出る）。
     /// </summary>
-    private static void Refuse(SecureChannel channel, System.Net.Sockets.TcpClient client)
+    private static void Refuse(SecureChannel channel, System.Net.Sockets.TcpClient client, byte type)
     {
         try
         {
-            channel.Write(Rejected, []);
+            channel.Write(type, []);
             client.Client.Shutdown(System.Net.Sockets.SocketShutdown.Send);
             client.ReceiveTimeout = 2000;
             for (int i = 0; i < 8 && channel.Read(PreAuthMaxMessage) is not null; i++) { }

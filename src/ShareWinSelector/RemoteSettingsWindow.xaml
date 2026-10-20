@@ -42,6 +42,9 @@
                             Content="{Binding [Remote_Connect], Source={x:Static local:Loc.Instance}}"/>
                     <TextBox x:Name="AddressBox" KeyDown="AddressBox_KeyDown"/>
                 </DockPanel>
+                <CheckBox x:Name="SendListCheck" Margin="0,10,0,0" Checked="SendList_Changed" Unchecked="SendList_Changed">
+                    <TextBlock Text="{Binding [Remote_SendList], Source={x:Static local:Loc.Instance}}" TextWrapping="Wrap"/>
+                </CheckBox>
             </StackPanel>
         </StackPanel>
 

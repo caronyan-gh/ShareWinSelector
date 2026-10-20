@@ -38,6 +38,7 @@ public partial class RemoteSettingsWindow : Window
         ChildRadio.IsChecked = s.RemoteRole == "Child";
         PortBox.Text = s.RemotePort.ToString();
         AddressBox.Text = s.RemoteParentAddress ?? "";
+        SendListCheck.IsChecked = s.RemoteSendWindowList;
         _loading = false;
         UpdateEnabledState();
     }
@@ -65,6 +66,15 @@ public partial class RemoteSettingsWindow : Window
         s.Save();
         UpdateEnabledState();
         _main.ApplyRemoteSettings();
+    }
+
+    // 子: 親にウィンドウの一覧を送るか（つないでいる最中でもすぐ効く）
+    private void SendList_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading || !IsInitialized) return;
+        App.Settings.RemoteSendWindowList = SendListCheck.IsChecked == true;
+        App.Settings.Save();
+        _main.ApplyRemoteSendWindowList();
     }
 
     // --- ポート ---
@@ -144,7 +154,8 @@ public partial class RemoteSettingsWindow : Window
         if (address.Length == 0) return;
         App.Settings.RemoteParentAddress = address;
         App.Settings.Save();
-        _main.ApplyRemoteSettings();
+        // 自分で［つなぐ］を押した（または見つけた親を選んだ）ので、「つなぎますか？」は聞かない
+        _main.ApplyRemoteSettings(userConnect: true);
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

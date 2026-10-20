@@ -23,6 +23,46 @@ Check that the child's screen shows the same number, then allow it.</value>
     <value>Pairing with the parent "{0}".
 Check that the parent's screen shows the same number, then allow it.</value>
   </data>
+  <data name="Connect_Title" xml:space="preserve">
+    <value>Remote link</value>
+  </data>
+  <data name="Connect_Message" xml:space="preserve">
+    <value>Connect to the parent "{0}"?
+Once connected, the parent can pick windows of this PC and share them.</value>
+  </data>
+  <data name="Connect_MessageNoList" xml:space="preserve">
+    <value>Connect to the parent "{0}"?</value>
+  </data>
+  <data name="Remote_SendList" xml:space="preserve">
+    <value>Send this PC's window list to the parent (the parent can pick windows to share)</value>
+  </data>
+  <data name="Badge_ChildSending" xml:space="preserve">
+    <value>● Sending to parent</value>
+  </data>
+  <data name="Badge_ChildConnecting" xml:space="preserve">
+    <value>Connecting to parent…</value>
+  </data>
+  <data name="Badge_ParentConnected" xml:space="preserve">
+    <value>● Child connected</value>
+  </data>
+  <data name="Badge_ParentWaiting" xml:space="preserve">
+    <value>Waiting for child…</value>
+  </data>
+  <data name="Badge_ParentSharing" xml:space="preserve">
+    <value>● Sharing R</value>
+  </data>
+  <data name="Connect_SkipNext" xml:space="preserve">
+    <value>Connect to this parent without asking</value>
+  </data>
+  <data name="Connect_Connect" xml:space="preserve">
+    <value>Connect</value>
+  </data>
+  <data name="Connect_Unpair" xml:space="preserve">
+    <value>Unpair</value>
+  </data>
+  <data name="Connect_Cancel" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
   <data name="Pair_Allow" xml:space="preserve">
     <value>Allow</value>
   </data>
@@ -52,6 +92,15 @@ Check that the parent's screen shows the same number, then allow it.</value>
   </data>
   <data name="Remote_StatusRejected" xml:space="preserve">
     <value>Not connected to the parent ({0}): it was denied on one of the screens, or the time ran out.</value>
+  </data>
+  <data name="Remote_StatusConfirming" xml:space="preserve">
+    <value>Asking on this PC whether to connect to the parent ({0}).</value>
+  </data>
+  <data name="Remote_StatusPaused" xml:space="preserve">
+    <value>Not connected to the parent ({0}). Press Connect to connect.</value>
+  </data>
+  <data name="Remote_StatusUnpaired" xml:space="preserve">
+    <value>Unpaired. Press Connect to connect (the number is checked again).</value>
   </data>
   <data name="Remote_StatusCertChanged" xml:space="preserve">
     <value>The parent ({0}) is not the one you paired with. If its settings were deleted, unpair and connect again.</value>
@@ -212,6 +261,24 @@ That firewall rule stays even after you stop using this. If you no longer need i
   </data>
   <data name="Undo_Button" xml:space="preserve">
     <value>Undo</value>
+  </data>
+  <data name="Toolbar_Pause" xml:space="preserve">
+    <value>Pause</value>
+  </data>
+  <data name="Toolbar_Resume" xml:space="preserve">
+    <value>Resume</value>
+  </data>
+  <data name="Toolbar_Paused" xml:space="preserve">
+    <value>⏸ Paused</value>
+  </data>
+  <data name="Pause_Tip" xml:space="preserve">
+    <value>Pause: keep your picks, and show others only the background</value>
+  </data>
+  <data name="Resume_Tip" xml:space="preserve">
+    <value>Resume: show the picked windows again</value>
+  </data>
+  <data name="Status_Paused" xml:space="preserve">
+    <value>⏸ Paused (others see only the background).</value>
   </data>
   <data name="Toolbar_Front" xml:space="preserve">
     <value>To front</value>

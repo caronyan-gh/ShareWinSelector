@@ -23,7 +23,7 @@ public partial class RemotePairWindow : Window
         if (anchor is not null)
         {
             WindowStartupLocation = WindowStartupLocation.Manual;
-            Loaded += (_, _) => PlaceOver(anchor);
+            Loaded += (_, _) => PlaceOver(this, anchor);
         }
         MessageText.Text = message;
         // 6 桁は 3 桁ずつに分けて見比べやすく
@@ -49,10 +49,10 @@ public partial class RemotePairWindow : Window
     /// anchor の真ん中に重ねて置く（いま見ている画面に出す）。anchor のモニターの作業領域からははみ出さない。
     /// 先に anchor のモニターへ動かしてから大きさを測り直す（モニターごとに拡大率が違うと、動かしたときに大きさが変わるため）。
     /// </summary>
-    private void PlaceOver(Window anchor)
+    internal static void PlaceOver(Window window, Window anchor)
     {
         var anchorHwnd = new WindowInteropHelper(anchor).Handle;
-        var hwnd = new WindowInteropHelper(this).Handle;
+        var hwnd = new WindowInteropHelper(window).Handle;
         if (anchorHwnd == IntPtr.Zero || hwnd == IntPtr.Zero || !Interop.Native.GetWindowRect(anchorHwnd, out var a)) return;
         const uint flags = Interop.Native.SWP_NOSIZE | Interop.Native.SWP_NOZORDER | Interop.Native.SWP_NOACTIVATE;
         Interop.Native.SetWindowPos(hwnd, IntPtr.Zero, a.Left, a.Top, 0, 0, flags);
